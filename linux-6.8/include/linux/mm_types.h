@@ -912,7 +912,7 @@ struct mm_struct {
 #ifdef CONFIG_NUMA_BALANCING
 
 		// [hayong] auto numa profiling
-		static struct numa_folio_stat
+		struct numa_folio_stat
 		{
 			int source_nid;
 			atomic_t migrate_count;
