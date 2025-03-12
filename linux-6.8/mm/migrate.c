@@ -51,6 +51,11 @@
 #include <linux/sched/sysctl.h>
 #include <linux/memory-tiers.h>
 
+//[hayong]
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/mm_types.h>
+
 #include <asm/tlbflush.h>
 
 #include <trace/events/migrate.h>
@@ -1771,6 +1776,8 @@ move:
 			nr_pages = folio_nr_pages(folio);
 
 			cond_resched();
+			//[hayong] get source nid
+			int source_nid = folio_to_nid(folio);
 
 			rc = migrate_folio_move(put_new_folio, private,
 						folio, dst, mode,
@@ -1796,6 +1803,14 @@ move:
 				stats->nr_thp_failed += is_thp;
 				stats->nr_failed_pages += nr_pages;
 				break;
+			}
+			// [hayong] update migrate count
+			int nid = folio_to_nid(dst);
+			unsigned long pfn = folio_to_pfn(dst);
+			struct numa_folio_stat *stat = get_numa_folio_stat(nid,pfn);
+			if (stat) {
+				stat->source_nid = source_nid;
+				inc_migrate_count(stat);
 			}
 			dst = dst2;
 			dst2 = list_next_entry(dst, lru);
@@ -2562,6 +2577,10 @@ int migrate_misplaced_folio(struct folio *folio, struct vm_area_struct *vma,
 	LIST_HEAD(migratepages);
 	int nr_pages = folio_nr_pages(folio);
 
+	// [hayong]
+	int source_nid = folio_nid(folio);
+	
+
 	/*
 	 * Don't migrate file folios that are mapped in multiple processes
 	 * with execute permissions as they are probably shared libraries.
@@ -2612,3 +2631,56 @@ out:
 }
 #endif /* CONFIG_NUMA_BALANCING */
 #endif /* CONFIG_NUMA */
+
+
+// [hayong]
+
+
+static int numa_folio_stats_show(struct seq_file *m, void *v)
+{
+    int nid, pfn;
+
+    for_each_online_node(nid) {
+        int pages_per_node = node_spanned_pages(nid);
+
+        for (pfn = 0; pfn < pages_per_node; pfn++) {
+            struct numa_folio_stat *stat = get_numa_folio_stat(nid, pfn);
+            if (!stat)
+                continue;
+
+            if (atomic_read(&stat->migrate_count) > 0) { // migrate_count가 0이면 출력 안 함
+                seq_printf(m, "nid: %d, pfn: %d, source_nid: %d, migrate_count: %d\n",
+                           nid, pfn, stat->source_nid, atomic_read(&stat->migrate_count));
+            }
+        }
+    }
+    return 0;
+}
+
+static int numa_folio_stats_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, numa_folio_stats_show, NULL);
+}
+
+static const struct proc_ops numa_folio_stats_fops = {
+    .proc_open    = numa_folio_stats_open,
+    .proc_read    = seq_read,
+    .proc_lseek   = seq_lseek,
+    .proc_release = single_release,
+};
+
+/* 커널 초기화 시 /proc/numa_folio_stats 생성 */
+static int __init numa_folio_proc_init(void)
+{
+    proc_create("numa_folio_stats", 0444, NULL, &numa_folio_stats_fops);
+    return 0;
+}
+
+/* 커널 종료 시 /proc/numa_folio_stats 제거 */
+static void __exit numa_folio_proc_exit(void)
+{
+    remove_proc_entry("numa_folio_stats", NULL);
+}
+
+/* 커널 코드 직접 추가하므로 module_init/module_exit 대신 late_initcall 사용 */
+late_initcall(numa_folio_proc_init);
