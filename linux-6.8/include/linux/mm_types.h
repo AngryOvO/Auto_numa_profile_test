@@ -910,6 +910,14 @@ struct mm_struct {
 		pgtable_t pmd_huge_pte; /* protected by page_table_lock */
 #endif
 #ifdef CONFIG_NUMA_BALANCING
+
+		// [hayong] auto numa profiling
+		static struct numa_folio_stat
+		{
+			int source_nid;
+			atomic_t access_count;
+			atomic_t migrate_count;
+		}
 		/*
 		 * numa_next_scan is the next time that PTEs will be remapped
 		 * PROT_NONE to trigger NUMA hinting faults; such faults gather

@@ -31,6 +31,11 @@
 #include "slab.h"
 #include "shuffle.h"
 
+
+// [hayong] auto numa profiler
+#include <linux/mm_types.h>
+
+
 #include <asm/setup.h>
 
 #ifdef CONFIG_DEBUG_MEMORY_INIT
@@ -1307,6 +1312,16 @@ static void __init calculate_node_totalpages(struct pglist_data *pgdat,
 	pgdat->node_present_pages = realtotalpages;
 	pr_debug("On node %d totalpages: %lu\n", pgdat->node_id, realtotalpages);
 }
+
+// [hayong] init struct array
+static int __init init_folio_stat(void)
+{
+	int nid;
+	
+	
+}
+
+
 
 static unsigned long __init calc_memmap_size(unsigned long spanned_pages,
 						unsigned long present_pages)
