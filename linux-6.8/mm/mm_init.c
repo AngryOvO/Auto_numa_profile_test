@@ -1318,35 +1318,36 @@ static void __init calculate_node_totalpages(struct pglist_data *pgdat,
 #ifdef CONFIG_NUMA_BALANCING
 
 struct numa_folio_stat **numa_profile_stat;
+
 static int __init init_folio_stat(void)
 {
-	int nid;
-	int pages_per_node;
+    int nid;
+    int pages_per_node;
 
-	numa_profile_stat = kzalloc(sizeof(struct numa_folio_stat *) * num_online_nodes(), GFP_KERNEL);
-	
-	if(!numa_profile_stat)
-		return -ENOMEM;
-	
-	for_each_online_node(nid) {
-		pages_per_node = node_spanned_pages(nid);
-		numa_profile_stat[nid] = kzalloc(sizeof(struct numa_folio_stat) * pages_per_node, GFP_KERNEL);
-		if(!numa_profile_stat[nid])
-		{
-			while (nid >= 0) {
-				kfree(numa_profile_stat[nid]);
-				nid--;
-			}
-			kfree(numa_profile_stat);
-			return -ENOMEM;
-		}
+    // vmalloc을 사용하여 연속된 가상 메모리 할당
+    numa_profile_stat = vmalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
+    if (!numa_profile_stat)
+        return -ENOMEM;
 
-		
-	}
-	return 0;
+    for_each_online_node(nid) {
+        pages_per_node = node_spanned_pages(nid);
+
+        // NUMA 노드별로 연속된 가상 메모리 할당
+        numa_profile_stat[nid] = vmalloc(sizeof(struct numa_folio_stat) * pages_per_node);
+        if (!numa_profile_stat[nid]) {
+            // 실패한 부분까지만 안전하게 해제
+            while (--nid >= 0) {
+                vfree(numa_profile_stat[nid]);
+            }
+            vfree(numa_profile_stat);
+            return -ENOMEM;
+        }
+    }
+
+    return 0;
 }
-late_initcall(init_folio_stat);
 
+late_initcall(init_folio_stat);
 
 #endif
 
