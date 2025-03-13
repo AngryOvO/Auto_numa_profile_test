@@ -910,25 +910,6 @@ struct mm_struct {
 		pgtable_t pmd_huge_pte; /* protected by page_table_lock */
 #endif
 #ifdef CONFIG_NUMA_BALANCING
-
-		// [hayong] auto numa profiling
-		struct numa_folio_stat
-		{
-			int source_nid;
-			atomic_t migrate_count;
-		};
-
-	
-
-		extern struct numa_folio_stat *get_numa_folio_stat(int nid, unsigned long pfn);
-
-		static inline void inc_migrate_count(struct numa_folio_stat *stat)
-		{
-			atomic_inc(&stat->migrate_count);
-		}
-		// [hayong] auto numa profiling
-
-
 		/*
 		 * numa_next_scan is the next time that PTEs will be remapped
 		 * PROT_NONE to trigger NUMA hinting faults; such faults gather
@@ -1005,6 +986,25 @@ struct mm_struct {
 	 */
 	unsigned long cpu_bitmap[];
 };
+
+#ifdef CONFIG_NUMA_BALANCING
+// [hayong] auto numa profiling
+struct numa_folio_stat
+{
+	int source_nid;
+	atomic_t migrate_count;
+}
+
+
+
+extern struct numa_folio_stat *get_numa_folio_stat(int nid, unsigned long pfn);
+
+static inline void inc_migrate_count(struct numa_folio_stat *stat)
+{
+	atomic_inc(&stat->migrate_count);
+}
+// [hayong] auto numa profiling
+#endif
 
 #define MM_MT_FLAGS	(MT_FLAGS_ALLOC_RANGE | MT_FLAGS_LOCK_EXTERN | \
 			 MT_FLAGS_USE_RCU)
