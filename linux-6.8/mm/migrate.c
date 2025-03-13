@@ -66,6 +66,7 @@
 // [hayong] init struct array
 
 struct numa_folio_stat **numa_profile_stat;
+static unsigned long get_pfn_for_node(int nid, unsigned long pfn);
 
 
 bool isolate_movable_page(struct page *page, isolate_mode_t mode)
@@ -1796,6 +1797,9 @@ move:
 		list_for_each_entry_safe(folio, folio2, &unmap_folios, lru) {
 			int source_nid = folio_nid(folio);
 			int dest_nid = folio_nid(dst);
+			int pfn = folio_pfn(dst);
+			int offset = get_pfn_for_node(dest_nid, pfn);
+		
 			is_thp = folio_test_large(folio) && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
 
@@ -1817,9 +1821,9 @@ move:
 				nr_retry_pages += nr_pages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
-				if (numa_profile_stat && numa_profile_stat[nid]) {
-					numa_profile_stat[nid][pfn].source_nid = source_nid;
-					inc_migrate_count(&numa_profile_stat[nid][pfn]);
+				if (numa_profile_stat && numa_profile_stat[dest_nid]) {
+					numa_profile_stat[dest_nid][offset].source_nid = source_nid;
+					inc_migrate_count(&numa_profile_stat[dest_nid][offset]);
 				}
 				stats->nr_succeeded += nr_pages;
 				stats->nr_thp_succeeded += is_thp;
@@ -2679,25 +2683,40 @@ static int __init init_folio_stat(void)
     return 0;
 }
 
-
+// pfn을 각 노드에서 고유한 인덱스로 변환하는 함수
+static unsigned long get_pfn_for_node(int nid, unsigned long pfn)
+{
+    unsigned long node_base_pfn = node_start_pfn(nid);  // 해당 노드의 첫 pfn
+    return pfn - node_base_pfn;  // pfn이 해당 노드의 시작 pfn부터 차감된 인덱스
+}
 
 static int numa_folio_stats_show(struct seq_file *m, void *v)
 {
     int nid;
 
+    // 각 노드를 순회
     for_each_online_node(nid) {
         if (!numa_profile_stat || !numa_profile_stat[nid])  // NULL 체크
             continue;
 
-        struct numa_folio_stat *stat = numa_profile_stat[nid];  // 포인터 가져오기
+        struct numa_folio_stat *stat = numa_profile_stat[nid];  // 노드별 stat 포인터 가져오기
+        unsigned long start_pfn = node_start_pfn(nid); 
+        unsigned long end_pfn = node_end_pfn(nid);   
 
-        if (atomic_read(&stat->migrate_count) > 0) {  // migrate_count가 0이면 출력 안 함
-            seq_printf(m, "nid: %d, source_nid: %d, migrate_count: %d\n",
-                       nid, stat->source_nid, atomic_read(&stat->migrate_count));
+        for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
+            // pfn에 해당하는 stat가 있을 때만 출력
+            unsigned long node_pfn = get_pfn_for_node(nid, pfn);
+            if (atomic_read(&stat[node_pfn].migrate_count) > 0) {
+                seq_printf(m, "folio node : %d, pfn: %lu, source_nid: %d, migrate_count: %d\n", nid, 
+                            pfn, stat[node_pfn].source_nid, atomic_read(&stat[node_pfn].migrate_count));
+            }
         }
     }
+
     return 0;
 }
+
+
 
 static int numa_folio_stats_open(struct inode *inode, struct file *file)
 {
