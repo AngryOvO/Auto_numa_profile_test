@@ -16,7 +16,7 @@ def parse_numa_folio_stat(file_path):
     
     return pfns, migrate_counts
 
-def plot_numa_folio_stat(file_path):
+def plot_numa_folio_stat(file_path, output_file="numa_folio_graph.png"):
     pfns, migrate_counts = parse_numa_folio_stat(file_path)
     times = np.arange(len(pfns))
     
@@ -31,8 +31,9 @@ def plot_numa_folio_stat(file_path):
     plt.title("PFN Migrate Count Over Time")
     plt.gca().invert_yaxis()
     
-    plt.show()
-
+    plt.savefig(output_file, dpi=300)
+    print(f"Graph saved as {output_file}")
+    
 # 파일 경로를 입력하여 실행
-target_file = "/proc/numa_folio_stat"  # 여기에 /proc/numa_folio_stat 경로를 지정
+target_file = "/proc/numa_folio_stat"  # 실제 /proc 경로로 설정
 plot_numa_folio_stat(target_file)
