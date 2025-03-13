@@ -1341,8 +1341,9 @@ static int __init init_folio_stat(void)
 			return -ENOMEM;
 		}
 
-		return 0;
+		
 	}
+	return 0;
 }
 late_initcall(init_folio_stat);
 
