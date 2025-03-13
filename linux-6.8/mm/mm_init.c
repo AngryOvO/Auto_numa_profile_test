@@ -1326,8 +1326,10 @@ static int __init init_folio_stat(void)
 
     // vmalloc을 사용하여 연속된 가상 메모리 할당
     numa_profile_stat = vmalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
-    if (!numa_profile_stat)
+    if (!numa_profile_stat) {
+        printk(KERN_ERR "NUMA profile stat allocation failed!\n");
         return -ENOMEM;
+    }
 
     for_each_online_node(nid) {
         pages_per_node = node_spanned_pages(nid);
@@ -1335,6 +1337,7 @@ static int __init init_folio_stat(void)
         // NUMA 노드별로 연속된 가상 메모리 할당
         numa_profile_stat[nid] = vmalloc(sizeof(struct numa_folio_stat) * pages_per_node);
         if (!numa_profile_stat[nid]) {
+            printk(KERN_ERR "NUMA profile stat allocation for node %d failed!\n", nid);
             // 실패한 부분까지만 안전하게 해제
             while (--nid >= 0) {
                 vfree(numa_profile_stat[nid]);
@@ -1344,10 +1347,10 @@ static int __init init_folio_stat(void)
         }
     }
 
+    printk(KERN_INFO "NUMA profile stat initialization complete.\n");
     return 0;
 }
 
-late_initcall(init_folio_stat);
 
 #endif
 
@@ -1765,6 +1768,7 @@ static void __init free_area_init_node(int nid)
 			end_pfn ? ((u64)end_pfn << PAGE_SHIFT) - 1 : 0);
 
 		calculate_node_totalpages(pgdat, start_pfn, end_pfn);
+		init_folio_stat();
 	} else {
 		pr_info("Initmem setup node %d as memoryless\n", nid);
 
