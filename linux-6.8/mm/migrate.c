@@ -1032,8 +1032,8 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 
 
 		//[hayong]
-		int nid = folio_to_nid(dst);
-		unsigned long pfn = folio_to_pfn(dst);
+		int nid = folio_nid(dst);
+		unsigned long pfn = folio_pfn(dst);
 
 		if (numa_profile_stat && numa_profile_stat[nid]) {
 			numa_profile_stat[nid][pfn].source_nid = source_nid;
