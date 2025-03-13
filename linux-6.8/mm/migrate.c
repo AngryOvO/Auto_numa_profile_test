@@ -964,12 +964,22 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 {
 	int rc = -EAGAIN;
 	bool is_lru = !__folio_test_movable(src);
-	int source_nid;
 
 	VM_BUG_ON_FOLIO(!folio_test_locked(src), src);
 	VM_BUG_ON_FOLIO(!folio_test_locked(dst), dst);
 
-	source_nid = folio_nid(src);
+
+/*
+
+int source_nid = folio_nid(src);
+	int dst_nid = folio_nid(dst);
+	unsigned long pfn = folio_pfn(dst);
+	if (numa_profile_stat && numa_profile_stat[dst_nid]) {
+		numa_profile_stat[dst_nid][pfn].source_nid = source_nid;
+		inc_migrate_count(&numa_profile_stat[dst_nid][pfn]);
+	}
+
+*/
 
 	if (likely(is_lru)) {
 		struct address_space *mapping = folio_mapping(src);
@@ -1015,6 +1025,8 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 	 * src is freed; but stats require that PageAnon be left as PageAnon.
 	 */
 	if (rc == MIGRATEPAGE_SUCCESS) {
+
+		
 		if (__folio_test_movable(src)) {
 			VM_BUG_ON_FOLIO(!folio_test_isolated(src), src);
 
@@ -1035,16 +1047,6 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 
 		if (likely(!folio_is_zone_device(dst)))
 			flush_dcache_folio(dst);
-
-
-		//[hayong]
-		int nid = folio_nid(dst);
-		unsigned long pfn = folio_pfn(dst);
-
-		if (numa_profile_stat && numa_profile_stat[nid]) {
-			numa_profile_stat[nid][pfn].source_nid = source_nid;
-			inc_migrate_count(&numa_profile_stat[nid][pfn]);
-		}
 	}
 out:
 	return rc;
@@ -1792,6 +1794,8 @@ move:
 		dst = list_first_entry(&dst_folios, struct folio, lru);
 		dst2 = list_next_entry(dst, lru);
 		list_for_each_entry_safe(folio, folio2, &unmap_folios, lru) {
+			int source_nid = folio_nid(folio);
+			int dest_nid = folio_nid(dst);
 			is_thp = folio_test_large(folio) && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
 
@@ -1813,6 +1817,10 @@ move:
 				nr_retry_pages += nr_pages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
+				if (numa_profile_stat && numa_profile_stat[nid]) {
+					numa_profile_stat[nid][pfn].source_nid = source_nid;
+					inc_migrate_count(&numa_profile_stat[nid][pfn]);
+				}
 				stats->nr_succeeded += nr_pages;
 				stats->nr_thp_succeeded += is_thp;
 				break;
@@ -2645,7 +2653,7 @@ static int __init init_folio_stat(void)
     int pages_per_node;
 
     // vmalloc을 사용하여 연속된 가상 메모리 할당
-    numa_profile_stat = vmalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
+    numa_profile_stat = vzalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
     if (!numa_profile_stat) {
         printk(KERN_ERR "NUMA profile stat allocation failed!\n");
         return -ENOMEM;
@@ -2655,7 +2663,7 @@ static int __init init_folio_stat(void)
         pages_per_node = node_spanned_pages(nid);
 
         // NUMA 노드별로 연속된 가상 메모리 할당
-        numa_profile_stat[nid] = vmalloc(sizeof(struct numa_folio_stat) * pages_per_node);
+        numa_profile_stat[nid] = vzalloc(sizeof(struct numa_folio_stat) * pages_per_node);
         if (!numa_profile_stat[nid]) {
             printk(KERN_ERR "NUMA profile stat allocation for node %d failed!\n", nid);
             // 실패한 부분까지만 안전하게 해제
