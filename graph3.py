@@ -13,9 +13,11 @@ import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 
 # ----------------------------------------------------------------------
-# (A) /proc/node_pfn_stats 파일 파싱 함수
-# 각 노드의 전체 PFN 범위를 읽어 {node: (start_pfn, end_pfn)} 형식으로 반환합니다.
-# 파일 형식 예:
+# (A) Function to parse the /proc/node_pfn_stats file
+# Reads the entire PFN range for each node and returns a dictionary in the form:
+# {node: (start_pfn, end_pfn)}
+#
+# Expected file format:
 #   node 0
 #   start pfn 1, end pfn 5300000
 #
@@ -44,53 +46,54 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
                 print(f"Parsing node failed for line: {line}")
                 current_node = None
         elif line.startswith("start pfn"):
-            # 라인 예: "start pfn 1, end pfn 5300000" 또는 "start pfn 5300001, 10000000"
+            # Example line: "start pfn 1, end pfn 5300000" or "start pfn 5300001, 10000000"
             m = re.search(r'start pfn\s+(\d+)[,]?\s*(?:end pfn\s+)?(\d+)', line)
             if m and current_node is not None:
                 start_pfn = int(m.group(1))
                 end_pfn = int(m.group(2))
                 node_ranges[current_node] = (start_pfn, end_pfn)
-                current_node = None  # 노드 정보 초기화
+                current_node = None  # Reset the node info
     return node_ranges
 
 # ----------------------------------------------------------------------
-# (B) 메인 함수: 워크로드 실행, 데이터 수집, binning을 적용한 히트맵 생성, /proc/numa_folio_stats 삭제
+# (B) Main function: Execute workload, collect data, generate binned heatmaps,
+# and delete the /proc/numa_folio_stats file after process completion.
 # ----------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
-        description="워크로드 실행 동안 /proc/numa_folio_stats 데이터를 수집한 후, "
-                    "노드별 전체 PFN 범위(/proc/node_pfn_stats)를 기준으로 binning하여 히트맵을 생성합니다. "
-                    "색상은 기본 남색에서 마이그레이션 수치가 증가할수록 붉게 표현됩니다. "
-                    "프로세스 종료 후 /proc/numa_folio_stats 파일은 삭제됩니다."
+        description="This tool collects /proc/numa_folio_stats data during the workload execution, "
+                    "then creates a heatmap using binning based on the PFN ranges defined in /proc/node_pfn_stats. "
+                    "The color gradually changes from navy (low migration count) to red (high migration count). "
+                    "After the process is complete, the /proc/numa_folio_stats file is deleted."
     )
     parser.add_argument(
         "command", nargs="+",
-        help="실행할 워크로드 명령어 및 인자 (예: /usr/bin/my_workload arg1 arg2)"
+        help="The workload command and arguments to execute (e.g., /usr/bin/my_workload arg1 arg2)"
     )
     parser.add_argument(
         "--interval", type=float, default=0.5,
-        help="스냅샷 수집 간격 (초, 기본값: 2초)"
+        help="Snapshot collection interval in seconds (default: 0.5 seconds)"
     )
     parser.add_argument(
         "--bin-size", type=int, default=10000,
-        help="PFN bin size (예: 10000, 기본값: 10000)"
+        help="PFN bin size (e.g., 10000, default: 10000)"
     )
     args = parser.parse_args()
 
-    # 사용자 정의 colormap: 남색(navy)에서 붉은색(red)으로 선형 보간
+    # Custom colormap: linear interpolation from navy to red
     custom_cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)
 
-    # 워크로드 실행 (subprocess)
-    print("워크로드 실행:", args.command)
+    # Execute the workload using subprocess
+    print("Executing workload:", args.command)
     proc = subprocess.Popen(args.command)
 
-    # /proc/numa_folio_stats 데이터를 누적합니다.
-    # 각 항목: [node, pfn, source_nid, migrate_count, snapshot]
+    # Collect data from /proc/numa_folio_stats.
+    # Each record: [node, pfn, source_nid, migrate_count, snapshot]
     collected_data = []
     snapshot = 0
     numa_file = '/proc/numa_folio_stats'
 
-    print("워크로드 실행 중 데이터 수집 시작...")
+    print("Starting data collection during workload execution...")
     try:
         while proc.poll() is None:
             snapshot += 1
@@ -98,9 +101,9 @@ def main():
                 with open(numa_file, 'r') as f:
                     lines = f.readlines()
             except Exception as e:
-                print(f"'{numa_file}' 파일 읽기 실패: {e}")
+                print(f"Failed to read '{numa_file}': {e}")
                 sys.exit(1)
-            # 각 스냅샷의 모든 라인 파싱
+            # Parse all lines in the current snapshot
             for line in lines:
                 m = re.search(
                     r'folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)',
@@ -114,41 +117,41 @@ def main():
                     collected_data.append([node, pfn, source_nid, migrate_count, snapshot])
             time.sleep(args.interval)
     except KeyboardInterrupt:
-        print("사용자 요청으로 데이터 수집 중단. 워크로드 종료...")
+        print("Data collection interrupted by user. Terminating workload...")
         proc.terminate()
         proc.wait()
 
-    print("워크로드 종료됨. 수집된 데이터를 기반으로 히트맵을 생성합니다.")
+    print("Workload terminated. Generating heatmaps from collected data...")
 
-    # 누적된 데이터를 DataFrame으로 변환
+    # Convert collected data to a DataFrame
     df = pd.DataFrame(
         collected_data,
         columns=['node', 'pfn', 'source_nid', 'migrate_count', 'snapshot']
     )
-    print("수집된 데이터 예시:")
+    print("Sample of collected data:")
     print(df.head())
 
-    # /proc/node_pfn_stats 파일에서 각 노드의 전체 PFN 범위를 파싱합니다.
+    # Parse the /proc/node_pfn_stats file to get PFN ranges for each node
     node_ranges = parse_node_pfn_stats('/proc/node_pfn_stats')
-    print("노드 전체 PFN 범위:")
+    print("Node PFN ranges:")
     print(node_ranges)
 
-    # 각 노드별로 binning 기법을 적용하여 히트맵을 생성합니다.
+    # Generate binned heatmaps for each node
     all_nodes = set(list(node_ranges.keys()))
     for node in all_nodes:
         start_pfn, end_pfn = node_ranges[node]
         bin_size = args.bin_size
-        # 전체 PFN 범위에서 bin 경계를 생성 (start_pfn부터 bin_size 단위)
+        # Create bin boundaries from start_pfn with a step size of bin_size
         bins = np.arange(start_pfn, end_pfn + bin_size, bin_size)
-        # 각 bin의 중앙값을 라벨로 사용합니다.
+        # Use the midpoint of each bin as a label
         labels = [(bins[i] + bins[i+1]) // 2 for i in range(len(bins) - 1)]
-        overall_bin_labels = labels  # 재인덱싱에 사용할 라벨 리스트
+        overall_bin_labels = labels  # Labels for reindexing
 
-        # 해당 노드의 데이터 선택
+        # Select data for the current node
         node_df = df[df['node'] == node].copy()
         if node_df.empty:
-            print(f"노드 {node}에 대해 수집된 데이터가 없습니다. (빈 히트맵 생성)")
-        # 'pfn' 정보를 binning: pd.cut으로 PFN을 bin에 할당 (라벨은 각 bin의 중앙값)
+            print(f"No collected data for node {node} (generating an empty heatmap).")
+        # Apply binning to PFN values using pd.cut with bin midpoints as labels
         node_df['pfn_bin'] = pd.cut(
             node_df['pfn'],
             bins=bins,
@@ -156,18 +159,18 @@ def main():
             include_lowest=True
         )
         
-        # pivot table 생성: index는 pfn_bin, columns는 snapshot, 값은 migrate_count
+        # Create a pivot table: index is pfn_bin, columns are snapshots, values are migrate_count
         pivot_table = node_df.pivot_table(
             index='pfn_bin',
             columns='snapshot',
             values='migrate_count',
             aggfunc='first'
         )
-        # 전체 bin 범위에 대해 재인덱싱, 해당 bin에 데이터가 없으면 0으로 채움
+        # Reindex to include all bins and fill missing values with 0
         pivot_table = pivot_table.reindex(overall_bin_labels).fillna(0)
     
         plt.figure(figsize=(12, 8))
-        # custom_cmap를 사용하여 히트맵 그리기: 기본 남색에서 붉게
+        # Draw the heatmap using the custom colormap (from navy to red)
         sns.heatmap(pivot_table, cmap=custom_cmap, cbar=True)
         plt.title(f"Node {node} - Migrate Count (Binned) During Workload")
         plt.xlabel("Snapshot (Time)")
@@ -176,15 +179,15 @@ def main():
         filename = f"node_{node}_workload_binned_heatmap.png"
         plt.savefig(filename)
         plt.close()
-        print(f"노드 {node} 히트맵이 '{filename}' 로 저장되었습니다.")
+        print(f"Heatmap for node {node} saved as '{filename}'.")
 
-    # 워크로드 종료 후 /proc/numa_folio_stats 파일 삭제 (공정하게 초기화)
+    # After workload termination, delete the /proc/numa_folio_stats file (reset)
     if os.path.exists(numa_file):
         try:
             os.remove(numa_file)
-            print(f"'{numa_file}' 파일이 삭제되었습니다.")
+            print(f"File '{numa_file}' has been deleted.")
         except Exception as e:
-            print(f"'{numa_file}' 파일 삭제 실패: {e}")
+            print(f"Failed to delete '{numa_file}': {e}")
 
 if __name__ == "__main__":
     main()
