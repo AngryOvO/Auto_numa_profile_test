@@ -34,6 +34,7 @@
 
 // [hayong] auto numa profiler
 #include <linux/mm_types.h>
+#include <linux/mmzone.h>
 
 
 #include <asm/setup.h>
