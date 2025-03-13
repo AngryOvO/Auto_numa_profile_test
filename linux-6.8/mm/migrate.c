@@ -1807,10 +1807,10 @@ move:
 			// [hayong] update migrate count
 			int nid = folio_to_nid(dst);
 			unsigned long pfn = folio_to_pfn(dst);
-			struct numa_folio_stat *stat = get_numa_folio_stat(nid,pfn);
-			if (stat) {
-				stat->source_nid = source_nid;
-				inc_migrate_count(stat);
+
+			if (numa_profile_stat && numa_profile_stat[nid]) {
+				numa_profile_stat[nid][pfn].source_nid = source_nid;
+				inc_migrate_count(&numa_profile_stat[nid][pfn]);
 			}
 			dst = dst2;
 			dst2 = list_next_entry(dst, lru);
@@ -2644,13 +2644,12 @@ static int numa_folio_stats_show(struct seq_file *m, void *v)
         int pages_per_node = node_spanned_pages(nid);
 
         for (pfn = 0; pfn < pages_per_node; pfn++) {
-            struct numa_folio_stat *stat = get_numa_folio_stat(nid, pfn);
-            if (!stat)
+            if (!numa_profile_stat)
                 continue;
 
-            if (atomic_read(&stat->migrate_count) > 0) { // migrate_count가 0이면 출력 안 함
+            if (numa_profile_stat[nid] && atomic_read(&numa_profile_stat[nid][pfn].migrate_count) > 0) { // migrate_count가 0이면 출력 안 함
                 seq_printf(m, "nid: %d, pfn: %d, source_nid: %d, migrate_count: %d\n",
-                           nid, pfn, stat->source_nid, atomic_read(&stat->migrate_count));
+                           nid, pfn, numa_profile_stat[nid][pfn].source_nid, atomic_read(&numa_profile_stat->migrate_count));
             }
         }
     }

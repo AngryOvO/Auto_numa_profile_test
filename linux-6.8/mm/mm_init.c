@@ -1317,32 +1317,35 @@ static void __init calculate_node_totalpages(struct pglist_data *pgdat,
 // [hayong] init struct array
 #ifdef CONFIG_NUMA_BALANCING
 
-static struct numa_folio_stat **numa_folio_stat;
+struct numa_folio_stat **numa_profile_stat;
 static int __init init_folio_stat(void)
 {
 	int nid;
 	int pages_per_node;
 
-	numa_folio_stat = kzalloc(sizeof(struct numa_folio_stat *) * num_online_nodes(), GFP_KERNEL);
+	numa_profile_stat = kzalloc(sizeof(struct numa_folio_stat *) * num_online_nodes(), GFP_KERNEL);
 	
-	if(!numa_folio_stat)
+	if(!numa_profile_stat)
 		return -ENOMEM;
 	
 	for_each_online_node(nid) {
 		pages_per_node = node_spanned_pages(nid);
-		numa_folio_stat[nid] = kzalloc(sizeof(struct numa_folio_stat) * pages_per_node, GFP_KERNEL);
+		numa_profile_stat[nid] = kzalloc(sizeof(struct numa_folio_stat) * pages_per_node, GFP_KERNEL);
 		if(!numa_folio_stat[nid])
+		{
+			while (nid >= 0) {
+				kfree(numa_profile_stat[nid]);
+				nid--;
+			}
+			kfree(numa_profile_stat);
 			return -ENOMEM;
+		}
+			
 	}
 }
 late_initcall(init_folio_stat);
 
-struct numa_folio_stat *get_numa_folio_stat(int nid, unsigned long pfn)
-{
-	if (nid >= num_online_nodes() || !numa_folio_stat[nid])
-		return NULL;
-	return &numa_folio_stat[nid][pfn];
-}
+
 #endif
 
 

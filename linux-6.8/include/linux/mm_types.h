@@ -993,11 +993,9 @@ struct numa_folio_stat
 {
 	int source_nid;
 	atomic_t migrate_count;
-}
+};
 
-
-
-extern struct numa_folio_stat *get_numa_folio_stat(int nid, unsigned long pfn);
+extern struct numa_folio_stat **numa_profile_stat;
 
 static inline void inc_migrate_count(struct numa_folio_stat *stat)
 {
