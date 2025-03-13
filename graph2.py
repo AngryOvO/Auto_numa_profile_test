@@ -22,7 +22,7 @@ def main():
     parser.add_argument(
         "--interval",
         type=float,
-        default=2.0,
+        default=0.1,
         help="스냅샷 수집 간격 (초 단위, 기본값: 2초)"
     )
     args = parser.parse_args()
@@ -35,7 +35,6 @@ def main():
     snapshot = 0
     log_file_path = '/proc/numa_folio_stats'
 
-    print("데이터 수집을 시작합니다. 워크로드가 종료될 때까지 수집합니다.")
     try:
         # 워크로드 프로세스가 살아 있는 동안 주기적으로 /proc/numa_folio_stats 읽기
         while proc.poll() is None:
@@ -58,10 +57,8 @@ def main():
                     source_nid = int(match.group(3))
                     migrate_count = int(match.group(4))
                     collected_data.append([node, pfn, source_nid, migrate_count, snapshot])
-            print(f"Snapshot {snapshot} 수집 완료.")
             time.sleep(args.interval)
     except KeyboardInterrupt:
-        print("사용자 요청으로 데이터 수집 중단. 워크로드 프로세스를 종료합니다.")
         proc.terminate()
         proc.wait()
 
