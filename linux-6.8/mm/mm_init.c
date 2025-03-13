@@ -32,11 +32,6 @@
 #include "shuffle.h"
 
 
-// [hayong] auto numa profiler
-#include <linux/mm_types.h>
-#include <linux/mmzone.h>
-
-
 #include <asm/setup.h>
 
 #ifdef CONFIG_DEBUG_MEMORY_INIT
@@ -1313,48 +1308,6 @@ static void __init calculate_node_totalpages(struct pglist_data *pgdat,
 	pgdat->node_present_pages = realtotalpages;
 	pr_debug("On node %d totalpages: %lu\n", pgdat->node_id, realtotalpages);
 }
-
-
-// [hayong] init struct array
-#ifdef CONFIG_NUMA_BALANCING
-
-struct numa_folio_stat **numa_profile_stat;
-
-static int __init init_folio_stat(void)
-{
-    int nid;
-    int pages_per_node;
-
-    // vmalloc을 사용하여 연속된 가상 메모리 할당
-    numa_profile_stat = vmalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
-    if (!numa_profile_stat) {
-        printk(KERN_ERR "NUMA profile stat allocation failed!\n");
-        return -ENOMEM;
-    }
-
-    for_each_online_node(nid) {
-        pages_per_node = node_spanned_pages(nid);
-
-        // NUMA 노드별로 연속된 가상 메모리 할당
-        numa_profile_stat[nid] = vmalloc(sizeof(struct numa_folio_stat) * pages_per_node);
-        if (!numa_profile_stat[nid]) {
-            printk(KERN_ERR "NUMA profile stat allocation for node %d failed!\n", nid);
-            // 실패한 부분까지만 안전하게 해제
-            while (--nid >= 0) {
-                vfree(numa_profile_stat[nid]);
-            }
-            vfree(numa_profile_stat);
-            return -ENOMEM;
-        }
-    }
-
-    printk(KERN_INFO "NUMA profile stat initialization complete.\n");
-    return 0;
-}
-
-
-#endif
-
 
 static unsigned long __init calc_memmap_size(unsigned long spanned_pages,
 						unsigned long present_pages)

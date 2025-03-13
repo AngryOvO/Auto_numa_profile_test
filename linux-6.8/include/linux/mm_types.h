@@ -987,7 +987,6 @@ struct mm_struct {
 	unsigned long cpu_bitmap[];
 };
 
-#ifdef CONFIG_NUMA_BALANCING
 // [hayong] auto numa profiling
 struct numa_folio_stat
 {
@@ -1002,7 +1001,6 @@ static inline void inc_migrate_count(struct numa_folio_stat *stat)
 	atomic_inc(&stat->migrate_count);
 }
 // [hayong] auto numa profiling
-#endif
 
 #define MM_MT_FLAGS	(MT_FLAGS_ALLOC_RANGE | MT_FLAGS_LOCK_EXTERN | \
 			 MT_FLAGS_USE_RCU)

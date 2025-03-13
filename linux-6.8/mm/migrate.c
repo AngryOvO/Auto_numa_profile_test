@@ -51,10 +51,11 @@
 #include <linux/sched/sysctl.h>
 #include <linux/memory-tiers.h>
 
-//[hayong]
+// [hayong] auto numa profiler
+#include <linux/mm_types.h>
+#include <linux/mmzone.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/mm_types.h>
 
 #include <asm/tlbflush.h>
 
@@ -2633,8 +2634,42 @@ out:
 #endif /* CONFIG_NUMA_BALANCING */
 #endif /* CONFIG_NUMA */
 
+// [hayong] init struct array
 
-// [hayong]
+struct numa_folio_stat **numa_profile_stat;
+
+static int __init init_folio_stat(void)
+{
+    int nid;
+    int pages_per_node;
+
+    // vmalloc을 사용하여 연속된 가상 메모리 할당
+    numa_profile_stat = vmalloc(sizeof(struct numa_folio_stat *) * num_online_nodes());
+    if (!numa_profile_stat) {
+        printk(KERN_ERR "NUMA profile stat allocation failed!\n");
+        return -ENOMEM;
+    }
+
+    for_each_online_node(nid) {
+        pages_per_node = node_spanned_pages(nid);
+
+        // NUMA 노드별로 연속된 가상 메모리 할당
+        numa_profile_stat[nid] = vmalloc(sizeof(struct numa_folio_stat) * pages_per_node);
+        if (!numa_profile_stat[nid]) {
+            printk(KERN_ERR "NUMA profile stat allocation for node %d failed!\n", nid);
+            // 실패한 부분까지만 안전하게 해제
+            while (--nid >= 0) {
+                vfree(numa_profile_stat[nid]);
+            }
+            vfree(numa_profile_stat);
+            return -ENOMEM;
+        }
+    }
+
+    printk(KERN_INFO "NUMA profile stat initialization complete.\n");
+    return 0;
+}
+
 
 
 static int numa_folio_stats_show(struct seq_file *m, void *v)
@@ -2681,4 +2716,5 @@ static void __exit numa_folio_proc_exit(void)
 }
 
 /* 커널 코드 직접 추가하므로 module_init/module_exit 대신 late_initcall 사용 */
+late_initcall(init_folio_stat);
 late_initcall(numa_folio_proc_init);
