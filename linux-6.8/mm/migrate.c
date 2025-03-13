@@ -2743,6 +2743,51 @@ static void __exit numa_folio_proc_exit(void)
     remove_proc_entry("numa_folio_stats", NULL);
 }
 
+static int node_pfn_stats_show(struct seq_file *m, void *v)
+{
+    int nid;
+
+    // 각 노드를 순회
+    for_each_online_node(nid) {
+        unsigned long start_pfn = node_start_pfn(nid); 
+        unsigned long end_pfn = node_end_pfn(nid);   
+
+        // 각 노드에 대해 PFN 범위 출력
+        seq_printf(m, "node %d\n", nid);
+        seq_printf(m, "start pfn %lu, end pfn %lu\n", start_pfn, end_pfn);
+    }
+
+    return 0;
+}
+
+static int node_pfn_stats_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, node_pfn_stats_show, NULL);
+}
+
+static const struct proc_ops node_pfn_stats_fops = {
+    .proc_open    = node_pfn_stats_open,
+    .proc_read    = seq_read,
+    .proc_lseek   = seq_lseek,
+    .proc_release = single_release,
+};
+
+/* 커널 초기화 후 /proc/node_pfn_stats 생성 */
+static int __init node_pfn_proc_init(void)
+{
+    proc_create("node_pfn_stats", 0444, NULL, &node_pfn_stats_fops);
+    return 0;
+}
+
+/* 커널 종료 시 /proc/node_pfn_stats 제거 */
+static void __exit node_pfn_proc_exit(void)
+{
+    remove_proc_entry("node_pfn_stats", NULL);
+}
+
+
+
 /* 커널 코드 직접 추가하므로 module_init/module_exit 대신 late_initcall 사용 */
 late_initcall(init_folio_stat);
 late_initcall(numa_folio_proc_init);
+late_initcall(node_pfn_proc_init);
