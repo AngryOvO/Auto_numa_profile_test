@@ -68,7 +68,7 @@ def main():
         help="실행할 워크로드 명령어 및 인자 (예: /usr/bin/my_workload arg1 arg2)"
     )
     parser.add_argument(
-        "--interval", type=float, default=2.0,
+        "--interval", type=float, default=0.5,
         help="스냅샷 수집 간격 (초, 기본값: 2초)"
     )
     parser.add_argument(
@@ -112,7 +112,6 @@ def main():
                     source_nid = int(m.group(3))
                     migrate_count = int(m.group(4))
                     collected_data.append([node, pfn, source_nid, migrate_count, snapshot])
-            print(f"Snapshot {snapshot} 수집 완료.")
             time.sleep(args.interval)
     except KeyboardInterrupt:
         print("사용자 요청으로 데이터 수집 중단. 워크로드 종료...")
