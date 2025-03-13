@@ -958,9 +958,12 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 {
 	int rc = -EAGAIN;
 	bool is_lru = !__folio_test_movable(src);
+	int source_nid;
 
 	VM_BUG_ON_FOLIO(!folio_test_locked(src), src);
 	VM_BUG_ON_FOLIO(!folio_test_locked(dst), dst);
+
+	source_nid = folio_nid(src);
 
 	if (likely(is_lru)) {
 		struct address_space *mapping = folio_mapping(src);
@@ -1026,6 +1029,16 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 
 		if (likely(!folio_is_zone_device(dst)))
 			flush_dcache_folio(dst);
+
+
+		//[hayong]
+		int nid = folio_to_nid(dst);
+		unsigned long pfn = folio_to_pfn(dst);
+
+		if (numa_profile_stat && numa_profile_stat[nid]) {
+			numa_profile_stat[nid][pfn].source_nid = source_nid;
+			inc_migrate_count(&numa_profile_stat[nid][pfn]);
+		}
 	}
 out:
 	return rc;
@@ -1648,6 +1661,7 @@ static int migrate_pages_batch(struct list_head *from,
 		nr_retry_pages = 0;
 
 		list_for_each_entry_safe(folio, folio2, from, lru) {
+
 			is_large = folio_test_large(folio);
 			is_thp = is_large && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
@@ -1776,8 +1790,6 @@ move:
 			nr_pages = folio_nr_pages(folio);
 
 			cond_resched();
-			//[hayong] get source nid
-			int source_nid = folio_nid(folio);
 
 			rc = migrate_folio_move(put_new_folio, private,
 						folio, dst, mode,
@@ -1803,14 +1815,6 @@ move:
 				stats->nr_thp_failed += is_thp;
 				stats->nr_failed_pages += nr_pages;
 				break;
-			}
-			// [hayong] update migrate count
-			int nid = folio_nid(dst);
-			unsigned long pfn = folio_pfn(dst);
-
-			if (numa_profile_stat && numa_profile_stat[nid]) {
-				numa_profile_stat[nid][pfn].source_nid = source_nid;
-				inc_migrate_count(&numa_profile_stat[nid][pfn]);
 			}
 			dst = dst2;
 			dst2 = list_next_entry(dst, lru);
