@@ -168,6 +168,11 @@ def main():
         )
         # Reindex to include all bins and fill missing values with 0
         pivot_table = pivot_table.reindex(overall_bin_labels).fillna(0)
+
+        if pivot_table.empty or pivot_table.shape[0] == 0 or pivot_table.shape[1] == 0:
+            print(f"No data for node {node} after binning. Skipping heatmap generation.")
+            continue
+
     
         plt.figure(figsize=(12, 8))
         # Draw the heatmap using the custom colormap (from navy to red)
