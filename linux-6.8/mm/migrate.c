@@ -1777,7 +1777,7 @@ move:
 
 			cond_resched();
 			//[hayong] get source nid
-			int source_nid = folio_to_nid(folio);
+			int source_nid = folio_nid(folio);
 
 			rc = migrate_folio_move(put_new_folio, private,
 						folio, dst, mode,
@@ -1805,8 +1805,8 @@ move:
 				break;
 			}
 			// [hayong] update migrate count
-			int nid = folio_to_nid(dst);
-			unsigned long pfn = folio_to_pfn(dst);
+			int nid = folio_nid(dst);
+			unsigned long pfn = folio_pfn(dst);
 
 			if (numa_profile_stat && numa_profile_stat[nid]) {
 				numa_profile_stat[nid][pfn].source_nid = source_nid;
@@ -2577,9 +2577,6 @@ int migrate_misplaced_folio(struct folio *folio, struct vm_area_struct *vma,
 	LIST_HEAD(migratepages);
 	int nr_pages = folio_nr_pages(folio);
 
-	// [hayong]
-	int source_nid = folio_nid(folio);
-	
 
 	/*
 	 * Don't migrate file folios that are mapped in multiple processes
@@ -2638,19 +2635,17 @@ out:
 
 static int numa_folio_stats_show(struct seq_file *m, void *v)
 {
-    int nid, pfn;
+    int nid;
 
     for_each_online_node(nid) {
-        int pages_per_node = node_spanned_pages(nid);
+        if (!numa_profile_stat || !numa_profile_stat[nid])  // NULL 체크
+            continue;
 
-        for (pfn = 0; pfn < pages_per_node; pfn++) {
-            if (!numa_profile_stat)
-                continue;
+        struct numa_folio_stat *stat = numa_profile_stat[nid];  // 포인터 가져오기
 
-            if (numa_profile_stat[nid] && atomic_read(&numa_profile_stat[nid][pfn].migrate_count) > 0) { // migrate_count가 0이면 출력 안 함
-                seq_printf(m, "nid: %d, pfn: %d, source_nid: %d, migrate_count: %d\n",
-                           nid, pfn, numa_profile_stat[nid][pfn].source_nid, atomic_read(&numa_profile_stat->migrate_count));
-            }
+        if (atomic_read(&stat->migrate_count) > 0) {  // migrate_count가 0이면 출력 안 함
+            seq_printf(m, "nid: %d, source_nid: %d, migrate_count: %d\n",
+                       nid, stat->source_nid, atomic_read(&stat->migrate_count));
         }
     }
     return 0;

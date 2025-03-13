@@ -1331,7 +1331,7 @@ static int __init init_folio_stat(void)
 	for_each_online_node(nid) {
 		pages_per_node = node_spanned_pages(nid);
 		numa_profile_stat[nid] = kzalloc(sizeof(struct numa_folio_stat) * pages_per_node, GFP_KERNEL);
-		if(!numa_folio_stat[nid])
+		if(!numa_profile_stat[nid])
 		{
 			while (nid >= 0) {
 				kfree(numa_profile_stat[nid]);
@@ -1340,7 +1340,8 @@ static int __init init_folio_stat(void)
 			kfree(numa_profile_stat);
 			return -ENOMEM;
 		}
-			
+
+		return 0;
 	}
 }
 late_initcall(init_folio_stat);
