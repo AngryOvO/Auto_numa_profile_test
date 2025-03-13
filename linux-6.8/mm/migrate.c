@@ -63,6 +63,11 @@
 
 #include "internal.h"
 
+// [hayong] init struct array
+
+struct numa_folio_stat **numa_profile_stat;
+
+
 bool isolate_movable_page(struct page *page, isolate_mode_t mode)
 {
 	struct folio *folio = folio_get_nontail_page(page);
@@ -2633,10 +2638,6 @@ out:
 }
 #endif /* CONFIG_NUMA_BALANCING */
 #endif /* CONFIG_NUMA */
-
-// [hayong] init struct array
-
-struct numa_folio_stat **numa_profile_stat;
 
 static int __init init_folio_stat(void)
 {

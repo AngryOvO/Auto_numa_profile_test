@@ -1722,7 +1722,6 @@ static void __init free_area_init_node(int nid)
 			end_pfn ? ((u64)end_pfn << PAGE_SHIFT) - 1 : 0);
 
 		calculate_node_totalpages(pgdat, start_pfn, end_pfn);
-		init_folio_stat();
 	} else {
 		pr_info("Initmem setup node %d as memoryless\n", nid);
 
