@@ -1,13 +1,14 @@
 import argparse
 import subprocess
 import sys
-import time
 import re
-import os
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from concurrent.futures import ThreadPoolExecutor
+from matplotlib.colors import LinearSegmentedColormap
 
-# PFN 범위 나누기 (예: start_pfn부터 end_pfn까지 n개 구간으로 나누기)
+# PFN 범위를 나누는 함수
 def split_pfn_range(start_pfn, end_pfn, num_threads):
     step = (end_pfn - start_pfn) // num_threads
     ranges = []
@@ -17,13 +18,12 @@ def split_pfn_range(start_pfn, end_pfn, num_threads):
         ranges.append((start, end))
     return ranges
 
-# 데이터를 수집하는 함수
+# 범위 내 데이터를 수집하는 함수
 def collect_data_for_range(start_pfn, end_pfn, snapshot, numa_file='/proc/numa_folio_stats'):
     collected_data = []
     try:
         with open(numa_file, 'r') as f:
             lines = f.readlines()
-        
         for line in lines:
             m = re.search(r'folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)', line)
             if m:
@@ -34,9 +34,9 @@ def collect_data_for_range(start_pfn, end_pfn, snapshot, numa_file='/proc/numa_f
         print(f"Error reading {numa_file}: {e}")
     return collected_data
 
-# 데이터 수집을 병렬로 처리하는 함수
+# 노드별 병렬 데이터 수집 함수
 def collect_data_parallel(snapshot, num_threads, numa_file='/proc/numa_folio_stats'):
-    node_ranges = parse_node_pfn_stats(numa_file)
+    node_ranges = parse_node_pfn_stats('/proc/node_pfn_stats')
     collected_data = []
 
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -46,12 +46,13 @@ def collect_data_parallel(snapshot, num_threads, numa_file='/proc/numa_folio_sta
             for (start, end) in pfn_ranges:
                 futures.append(executor.submit(collect_data_for_range, start, end, snapshot, numa_file))
         
+        # 병렬 처리 결과 병합
         for future in futures:
             collected_data.extend(future.result())
-    
+
     return collected_data
 
-# /proc/node_pfn_stats 파일을 파싱하여 노드별 pfn 범위를 얻는 함수
+# PFN 범위를 노드별로 파싱
 def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
     node_ranges = {}
     try:
@@ -79,14 +80,58 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
                 current_node = None
     return node_ranges
 
+# 히트맵 생성 함수
+def generate_heatmap_for_node(node, node_df, custom_cmap):
+    if node_df.empty:
+        print(f"No data for node {node}. Skipping heatmap generation.")
+        return
+    
+    pivot_table = node_df.pivot_table(index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum')
+    pivot_table = pivot_table.fillna(0)
+
+    if pivot_table.empty:
+        print(f"No data for node {node} after pivoting. Skipping heatmap.")
+        return
+
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(pivot_table, cmap=custom_cmap, cbar=True)
+    plt.title(f"Node {node} - Migrate Count During Workload")
+    plt.xlabel("Snapshot (Time)")
+    plt.ylabel("PFN")
+    plt.tight_layout()
+    filename = f"node_{node}_heatmap.png"
+    plt.savefig(filename)
+    plt.close()
+    print(f"Heatmap for node {node} saved as '{filename}'.")
+
+# 병렬 히트맵 생성 함수
+def generate_heatmaps_parallel(df, custom_cmap, num_threads):
+    all_nodes = set(df['node'].unique())
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = []
+        for node in all_nodes:
+            node_df = df[df['node'] == node]
+            futures.append(executor.submit(generate_heatmap_for_node, node, node_df, custom_cmap))
+        
+        # 결과 기다리기
+        for future in futures:
+            future.result()
+
+# 메인 함수
 def main():
-    parser = argparse.ArgumentParser(description="Collects /proc/numa_folio_stats data with parallel processing.")
-    parser.add_argument("command", nargs="+", help="Workload command to execute.")
-    parser.add_argument("--interval", type=float, default=0.5, help="Data collection interval (seconds).")
+    parser = argparse.ArgumentParser(
+        description="Collects /proc/numa_folio_stats data and generates heatmaps."
+    )
+    # 먼저 스레드 수를 받음
     parser.add_argument("--threads", type=int, default=4, help="Number of threads to use for parallel data collection.")
+    # 나머지 워크로드 명령 인자를 받음
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="Workload command to execute.")
     args = parser.parse_args()
 
-    print("Executing workload:", args.command)
+    custom_cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)
+
+    print(f"Number of threads: {args.threads}")
+    print(f"Executing workload command: {' '.join(args.command)}")
     proc = subprocess.Popen(args.command)
 
     collected_data = []
@@ -97,9 +142,10 @@ def main():
     try:
         while proc.poll() is None:
             snapshot += 1
+            # 멀티스레드로 데이터 수집
             data = collect_data_parallel(snapshot, args.threads, numa_file)
             collected_data.extend(data)
-            time.sleep(args.interval)
+            print(f"Snapshot {snapshot} collected. Data size: {len(data)} entries.")
 
     except KeyboardInterrupt:
         print("Data collection interrupted. Terminating workload...")
@@ -112,11 +158,12 @@ def main():
         print("No data collected. Exiting.")
         return
 
-    # pandas로 수집된 데이터 처리
+    # Pandas 데이터프레임 처리
     df = pd.DataFrame(collected_data, columns=['node', 'pfn', 'source_nid', 'migrate_count', 'snapshot'])
     print("Collected data sample:\n", df.head())
 
-    # 이후 heatmap 생성 로직 등을 처리
+    # 노드별 히트맵 병렬 생성
+    generate_heatmaps_parallel(df, custom_cmap, num_threads=args.threads)
 
 if __name__ == "__main__":
     main()
