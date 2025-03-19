@@ -145,7 +145,6 @@ def main():
             # 멀티스레드로 데이터 수집
             data = collect_data_parallel(snapshot, args.threads, numa_file)
             collected_data.extend(data)
-            print(f"Snapshot {snapshot} collected. Data size: {len(data)} entries.")
 
     except KeyboardInterrupt:
         print("Data collection interrupted. Terminating workload...")

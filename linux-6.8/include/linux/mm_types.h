@@ -168,6 +168,7 @@ struct page {
 
 	/* Usage count. *DO NOT USE DIRECTLY*. See page_ref.h */
 	atomic_t _refcount;
+	atomic_t _migratecount;
 
 #ifdef CONFIG_MEMCG
 	unsigned long memcg_data;
@@ -306,6 +307,7 @@ struct folio {
 			};
 			atomic_t _mapcount;
 			atomic_t _refcount;
+			atomic_t _migratecount;
 #ifdef CONFIG_MEMCG
 			unsigned long memcg_data;
 #endif
@@ -367,6 +369,7 @@ FOLIO_MATCH(index, index);
 FOLIO_MATCH(private, private);
 FOLIO_MATCH(_mapcount, _mapcount);
 FOLIO_MATCH(_refcount, _refcount);
+FOLIO_MATCH(_migratecount, _migratecount);
 #ifdef CONFIG_MEMCG
 FOLIO_MATCH(memcg_data, memcg_data);
 #endif
@@ -991,15 +994,22 @@ struct mm_struct {
 struct numa_folio_stat
 {
 	int source_nid;
-	atomic_t migrate_count;
+	//int folio_task_pid;
+	atomic_t current_migrate_count;
 };
 
 extern struct numa_folio_stat **numa_profile_stat;
 
-static inline void inc_migrate_count(struct numa_folio_stat *stat)
+static inline void set_migrate_count(struct numa_folio_stat *stat, int v)
 {
-	atomic_inc(&stat->migrate_count);
+	atomic_set(&stat->current_migrate_count, v);
 }
+
+static inline int get_migrate_count(struct numa_folio_stat *stat)
+{
+	return atomic_read(&stat->current_migrate_count);
+}
+
 // [hayong] auto numa profiling
 
 #define MM_MT_FLAGS	(MT_FLAGS_ALLOC_RANGE | MT_FLAGS_LOCK_EXTERN | \

@@ -1218,6 +1218,33 @@ static inline int page_mapcount(struct page *page)
 	return mapcount;
 }
 
+//[hayong] page migrate profiler
+
+static inline int folio_migrate_count(struct folio *folio)
+{
+	return atomic_read(&folio->_migratecount);
+}
+
+static inline void folio_migrate_count_inc(struct folio *folio)
+{
+	atomic_inc(&folio->_migratecount);
+}
+
+static inline void copy_migrate_count(struct folio *dst, struct folio *src)
+{
+	atomic_set(&dst->current_migrate_count, get_migrate_count(src));
+}
+
+static inline void set_folio_migrate_count(struct folio *folio, int count)
+{
+	atomic_set(&folio->_migratecount, count);
+}
+
+static inline void init_page_migration_count(struct page *page)
+{
+	atomic_set(&page->_migratecount, 0);
+}
+
 int folio_total_mapcount(struct folio *folio);
 
 /**

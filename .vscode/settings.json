@@ -1,6 +1,12 @@
 {
     "files.associations": {
         "proc_fs.h": "c",
-        "mm_types.h": "c"
+        "mm_types.h": "c",
+        "memory.h": "c",
+        "page-isolation.h": "c",
+        "notifier.h": "c",
+        "kernel.h": "c",
+        "init.h": "c",
+        "types.h": "c"
     }
 }

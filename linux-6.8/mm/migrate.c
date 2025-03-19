@@ -622,6 +622,12 @@ void folio_migrate_flags(struct folio *newfolio, struct folio *folio)
 	}
 	folio_xchg_last_cpupid(newfolio, cpupid);
 
+
+	//[hayong] auto numa profiler
+	copy_migrate_count(newfolio, folio);
+	folio_migrate_count_inc(newfolio);
+	set_migrate_count(folio, 0);
+
 	folio_migrate_ksm(newfolio, folio);
 	/*
 	 * Please do not reorder this without considering how mm/ksm.c's
@@ -683,6 +689,8 @@ int migrate_folio_extra(struct address_space *mapping, struct folio *dst,
 		folio_migrate_copy(dst, src);
 	else
 		folio_migrate_flags(dst, src);
+	
+	inc_migrate_count(dst);
 	return MIGRATEPAGE_SUCCESS;
 }
 
@@ -969,18 +977,6 @@ static int move_to_new_folio(struct folio *dst, struct folio *src,
 	VM_BUG_ON_FOLIO(!folio_test_locked(src), src);
 	VM_BUG_ON_FOLIO(!folio_test_locked(dst), dst);
 
-
-/*
-
-int source_nid = folio_nid(src);
-	int dst_nid = folio_nid(dst);
-	unsigned long pfn = folio_pfn(dst);
-	if (numa_profile_stat && numa_profile_stat[dst_nid]) {
-		numa_profile_stat[dst_nid][pfn].source_nid = source_nid;
-		inc_migrate_count(&numa_profile_stat[dst_nid][pfn]);
-	}
-
-*/
 
 	if (likely(is_lru)) {
 		struct address_space *mapping = folio_mapping(src);
@@ -1795,6 +1791,7 @@ move:
 		dst = list_first_entry(&dst_folios, struct folio, lru);
 		dst2 = list_next_entry(dst, lru);
 		list_for_each_entry_safe(folio, folio2, &unmap_folios, lru) {
+			// [hayong]
 			int source_nid = folio_nid(folio);
 			int dest_nid = folio_nid(dst);
 			int pfn = folio_pfn(dst);
@@ -1821,9 +1818,11 @@ move:
 				nr_retry_pages += nr_pages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
+			// [hayong]
 				if (numa_profile_stat && numa_profile_stat[dest_nid]) {
 					numa_profile_stat[dest_nid][offset].source_nid = source_nid;
-					inc_migrate_count(&numa_profile_stat[dest_nid][offset]);
+					int folio_migrate_count = folio_migrate_count(dst);
+					set_migrate_count(numa_profile_stat[dest_nid][offset], folio_migrate_count);
 				}
 				stats->nr_succeeded += nr_pages;
 				stats->nr_thp_succeeded += is_thp;
@@ -2706,9 +2705,9 @@ static int numa_folio_stats_show(struct seq_file *m, void *v)
         for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
             // pfn에 해당하는 stat가 있을 때만 출력
             unsigned long node_pfn = get_pfn_for_node(nid, pfn);
-            if (atomic_read(&stat[node_pfn].migrate_count) > 0) {
+            if (atomic_read(&stat[node_pfn].current_migrate_count) > 0) {
                 seq_printf(m, "folio node : %d, pfn: %lu, source_nid: %d, migrate_count: %d\n", nid, 
-                            pfn, stat[node_pfn].source_nid, atomic_read(&stat[node_pfn].migrate_count));
+                            pfn, stat[node_pfn].source_nid, atomic_read(&stat[node_pfn].current_migrate_count));
             }
         }
     }
@@ -2791,3 +2790,26 @@ static void __exit node_pfn_proc_exit(void)
 late_initcall(init_folio_stat);
 late_initcall(numa_folio_proc_init);
 late_initcall(node_pfn_proc_init);
+
+SYSCALL_DEFINE0(migrate_table_reset)
+{
+
+	int nid;
+
+	for_each_online_node(nid)
+	{
+		if(!numa_profile_stat || !numa_profile_stat[nid])
+			continue;
+
+		struct numa_folio_stat *stat = numa_profile_stat[nid];  // 노드별 stat 포인터 가져오기
+		unsigned long start_pfn = node_start_pfn(nid); 
+		unsigned long end_pfn = node_end_pfn(nid);
+
+		for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
+			set_migrate_count(&stat[pfn], 0);
+		}
+	}
+
+	printk(KERN_INFO "Migrate table reset complete.\n");	
+	return 0;
+}
