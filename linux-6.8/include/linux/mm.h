@@ -1232,7 +1232,7 @@ static inline void folio_migrate_count_inc(struct folio *folio)
 
 static inline void copy_migrate_count(struct folio *dst, struct folio *src)
 {
-	atomic_set(&dst->current_migrate_count, get_migrate_count(src));
+	atomic_set(&dst->_migratecount, folio_migrate_count(src));
 }
 
 static inline void set_folio_migrate_count(struct folio *folio, int count)
