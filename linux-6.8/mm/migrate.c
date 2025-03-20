@@ -1822,8 +1822,8 @@ move:
 			// [hayong]
 				if (numa_profile_stat && numa_profile_stat[dest_nid]) {
 					numa_profile_stat[dest_nid][offset].source_nid = source_nid;
-					int folio_migrate_count = folio_migrate_count(dst);
-					set_migrate_count(&numa_profile_stat[dest_nid][offset], folio_migrate_count);
+					int new_folio_migrate_count = folio_migrate_count(dst);
+					set_migrate_count(&numa_profile_stat[dest_nid][offset], new_folio_migrate_count);
 				}
 				stats->nr_succeeded += nr_pages;
 				stats->nr_thp_succeeded += is_thp;
