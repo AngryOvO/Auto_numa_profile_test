@@ -5,7 +5,7 @@ import sys
 import time
 import re
 import os
-
+import ctypes
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,15 +40,16 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
     return node_ranges
 
 def execute_migrate_table_reset():
-    try:
-        print("Executing migrate_table_reset system call...")
-        subprocess.run(["migrate_table_reset"], check=True)
+    SYS_MIGRATE_TABLE_RESET = 462  # ← 시스템 콜 번호를 확인해서 바꿔야 함
+    libc = ctypes.CDLL("libc.so.6")
+    
+    print("Executing migrate_table_reset system call...")
+    ret = libc.syscall(SYS_MIGRATE_TABLE_RESET)
+    
+    if ret == 0:
         print("migrate_table_reset executed successfully.")
-    except FileNotFoundError:
-        print("Error: migrate_table_reset command not found. Please ensure it is installed and in PATH.")
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        print(f"Error: migrate_table_reset system call failed with exit code {e.returncode}.")
+    else:
+        print(f"Error: migrate_table_reset system call failed with return code {ret}.")
         sys.exit(1)
 
 def main():
