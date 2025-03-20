@@ -40,7 +40,7 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
     return node_ranges
 
 def execute_migrate_table_reset():
-    SYS_MIGRATE_TABLE_RESET = 462  # 시스템 콜 번호
+    SYS_MIGRATE_TABLE_RESET = 462  # 시스템 콜 번호를 확인하여 설정
     libc = ctypes.CDLL("libc.so.6")
     
     print("Executing migrate_table_reset system call...")
@@ -97,9 +97,11 @@ def main():
         print("No data collected. Exiting.")
         return
 
+    # 데이터프레임 생성 및 스냅샷 범위 확보
     df = pd.DataFrame(collected_data, columns=['node', 'pfn', 'source_nid', 'migrate_count', 'snapshot'])
     print("Collected data sample:\n", df.head())
 
+    all_snapshots = range(df['snapshot'].min(), df['snapshot'].max() + 1)
     node_ranges = parse_node_pfn_stats('/proc/node_pfn_stats')
     print("Node PFN ranges:\n", node_ranges)
 
@@ -112,32 +114,30 @@ def main():
             print(f"No data for node {node}. Skipping heatmap generation.")
             continue
 
-        # 같은 노드에서 마이그레이션된 데이터
+        # 같은 노드에서 마이그레이션된 데이터 → 푸른색
         same_source_df = node_df[node_df['source_nid'] == node]
-        # 다른 노드에서 마이그레이션된 데이터
+        # 다른 노드에서 마이그레이션된 데이터 → 붉은색
         diff_source_df = node_df[node_df['source_nid'] != node]
-
-        if same_source_df.empty and diff_source_df.empty:
-            print(f"No relevant data for node {node}. Skipping.")
-            continue
 
         plt.figure(figsize=(12, 8))
 
-        # 같은 노드에서 마이그레이션된 데이터 → 푸른색
+        # 같은 노드 데이터
         if not same_source_df.empty:
             pivot_same = same_source_df.pivot_table(
-                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum'
+                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
             ).fillna(0)
+            pivot_same = pivot_same.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
             sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Blue", ["blue", "lightblue"], N=256),
-                        cbar=True, alpha=1.0)
+                        cbar=True)
 
-        # 다른 노드에서 마이그레이션된 데이터 → 붉은색
+        # 다른 노드 데이터
         if not diff_source_df.empty:
             pivot_diff = diff_source_df.pivot_table(
-                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum'
+                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
             ).fillna(0)
+            pivot_diff = pivot_diff.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
             sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Red", ["navy", "red"], N=256),
-                        cbar=True, alpha=1.0)
+                        cbar=True)
 
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
