@@ -2794,23 +2794,27 @@ late_initcall(node_pfn_proc_init);
 
 SYSCALL_DEFINE0(migrate_table_reset)
 {
+    int nid;
 
-	int nid;
+    for_each_online_node(nid) {
+        if (!numa_profile_stat || !numa_profile_stat[nid])
+            continue;
 
-	for_each_online_node(nid)
-	{
-		if(!numa_profile_stat || !numa_profile_stat[nid])
-			continue;
+        struct numa_folio_stat *stat = numa_profile_stat[nid];
+        unsigned long start_pfn = node_start_pfn(nid);
+        unsigned long end_pfn = node_end_pfn(nid);
+        unsigned long pages_per_node = node_spanned_pages(nid);  // 해당 노드의 총 페이지 수
 
-		struct numa_folio_stat *stat = numa_profile_stat[nid];  // 노드별 stat 포인터 가져오기
-		unsigned long start_pfn = node_start_pfn(nid); 
-		unsigned long end_pfn = node_end_pfn(nid);
+        for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
+            unsigned long local_pfn = get_pfn_for_node(nid, pfn);  // 변환된 인덱스
 
-		for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
-			set_migrate_count(&stat[pfn], 0);
-		}
-	}
+            if (local_pfn >= pages_per_node)  // OOB 체크
+                continue;
 
-	printk(KERN_INFO "Migrate table reset complete.\n");	
-	return 0;
+            set_migrate_count(&stat[local_pfn], 0);
+        }
+    }
+
+    printk(KERN_INFO "Migrate table reset complete.\n");
+    return 0;
 }
