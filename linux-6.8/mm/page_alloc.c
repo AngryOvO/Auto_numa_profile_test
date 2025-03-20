@@ -4656,11 +4656,11 @@ static unsigned long get_pfn_for_node(int nid, unsigned long pfn)
 void __free_pages(struct page *page, unsigned int order)
 {
 	//[hayong] autonuma profiler
+	int nid = page_to_nid(page);
 
 	if (numa_profile_stat && numa_profile_stat[nid]) 
 	{
 		int pfn = page_to_pfn(page);
-		int nid = page_to_nid(page);
 		int offset = get_pfn_for_node(nid, pfn);
 
         if (offset >= 0 && offset < node_spanned_pages(nid))
