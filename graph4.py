@@ -10,7 +10,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numexpr as ne  # NumPy 연산 최적화를 위해 추가
 from matplotlib.colors import LinearSegmentedColormap
 
 def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
@@ -47,8 +46,6 @@ def main():
     parser.add_argument("command", nargs="+", help="Workload command to execute.")
     parser.add_argument("--interval", type=float, default=0.5, help="Data collection interval (seconds).")
     args = parser.parse_args()
-
-    custom_cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)
 
     print("Executing workload:", args.command)
     proc = subprocess.Popen(args.command)
@@ -100,23 +97,49 @@ def main():
             print(f"No data for node {node}. Skipping heatmap generation.")
             continue
 
-        pivot_table = node_df.pivot_table(index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum')
+        for node in all_nodes:
+    node_df = df[df['node'] == node]
+
+    if node_df.empty:
+        print(f"No data for node {node}. Skipping heatmap generation.")
+        continue
+
+    for source_nid in node_df['source_nid'].unique():
+        source_nid_df = node_df[node_df['source_nid'] == source_nid]
+
+        if source_nid_df.empty:
+            print(f"No data for source_nid {source_nid} in node {node}. Skipping.")
+            continue
+
+        pivot_table = source_nid_df.pivot_table(
+            index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum'
+        )
         pivot_table = pivot_table.fillna(0)
 
         if pivot_table.empty:
-            print(f"No data for node {node} after pivoting. Skipping heatmap.")
+            print(f"No data for node {node}, source_nid {source_nid} after pivoting. Skipping heatmap.")
             continue
 
+        # source_nid 값에 따라 다른 색상 팔레트를 적용
+        if source_nid == 1:
+            cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)  # 남색 -> 붉은색
+        elif source_nid == 0:
+            cmap = LinearSegmentedColormap.from_list("BlueToLightBlue", ["blue", "lightblue"], N=256)  # 파랑 -> 연파랑
+        else:
+            cmap = sns.color_palette("Greens", as_cmap=True)  # 기타 색상 (필요 시 추가)
+
         plt.figure(figsize=(12, 8))
-        sns.heatmap(pivot_table, cmap=custom_cmap, cbar=True)
-        plt.title(f"Node {node} - Migrate Count During Workload")
+        sns.heatmap(pivot_table, cmap=cmap, cbar=True)
+        plt.title(f"Node {node} - Source NID {source_nid} - Migrate Count")
         plt.xlabel("Snapshot (Time)")
         plt.ylabel("PFN")
         plt.tight_layout()
-        filename = f"node_{node}_heatmap.png"
+
+        filename = f"node_{node}_source_nid_{source_nid}_heatmap.png"
         plt.savefig(filename)
         plt.close()
-        print(f"Heatmap for node {node} saved as '{filename}'.")
+        print(f"Heatmap for node {node}, source_nid {source_nid} saved as '{filename}'.")
+
 
     if os.path.exists(numa_file):
         try:

@@ -4663,8 +4663,7 @@ void __free_pages(struct page *page, unsigned int order)
 		int pfn = page_to_pfn(page);
 		int offset = get_pfn_for_node(nid, pfn);
 
-        if (offset >= 0 && offset < node_spanned_pages(nid))
-			set_migrate_count(&numa_profile_stat[nid][offset], 0);
+		set_migrate_count(&numa_profile_stat[nid][offset], 0);
 	}
 	/* get PageHead before we drop reference */
 	int head = PageHead(page);
