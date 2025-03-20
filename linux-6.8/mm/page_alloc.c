@@ -4648,6 +4648,14 @@ EXPORT_SYMBOL(get_zeroed_page);
  */
 void __free_pages(struct page *page, unsigned int order)
 {
+	//[hayong] autonuma profiler
+
+	int pfn = page_to_pfn(page);
+	int nid = page_to_nid(page);
+	int offset = get_pfn_for_node(nid, pfn);
+	set_migrate_count(&numa_profile_stat[nid][offset], 0);
+
+
 	/* get PageHead before we drop reference */
 	int head = PageHead(page);
 
