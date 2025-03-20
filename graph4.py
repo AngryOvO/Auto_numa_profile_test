@@ -39,6 +39,18 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
                 current_node = None
     return node_ranges
 
+def execute_migrate_table_reset():
+    try:
+        print("Executing migrate_table_reset system call...")
+        subprocess.run(["migrate_table_reset"], check=True)
+        print("migrate_table_reset executed successfully.")
+    except FileNotFoundError:
+        print("Error: migrate_table_reset command not found. Please ensure it is installed and in PATH.")
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"Error: migrate_table_reset system call failed with exit code {e.returncode}.")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Collects /proc/numa_folio_stats data and generates heatmaps."
@@ -46,6 +58,9 @@ def main():
     parser.add_argument("command", nargs="+", help="Workload command to execute.")
     parser.add_argument("--interval", type=float, default=0.5, help="Data collection interval (seconds).")
     args = parser.parse_args()
+
+    # 워크로드 실행 전에 migrate_table_reset 실행
+    execute_migrate_table_reset()
 
     print("Executing workload:", args.command)
     proc = subprocess.Popen(args.command)
@@ -97,49 +112,41 @@ def main():
             print(f"No data for node {node}. Skipping heatmap generation.")
             continue
 
-        for node in all_nodes:
-    node_df = df[df['node'] == node]
+        for source_nid in node_df['source_nid'].unique():
+            source_nid_df = node_df[node_df['source_nid'] == source_nid]
 
-    if node_df.empty:
-        print(f"No data for node {node}. Skipping heatmap generation.")
-        continue
+            if source_nid_df.empty:
+                print(f"No data for source_nid {source_nid} in node {node}. Skipping.")
+                continue
 
-    for source_nid in node_df['source_nid'].unique():
-        source_nid_df = node_df[node_df['source_nid'] == source_nid]
+            pivot_table = source_nid_df.pivot_table(
+                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum'
+            )
+            pivot_table = pivot_table.fillna(0)
 
-        if source_nid_df.empty:
-            print(f"No data for source_nid {source_nid} in node {node}. Skipping.")
-            continue
+            if pivot_table.empty:
+                print(f"No data for node {node}, source_nid {source_nid} after pivoting. Skipping heatmap.")
+                continue
 
-        pivot_table = source_nid_df.pivot_table(
-            index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum'
-        )
-        pivot_table = pivot_table.fillna(0)
+            # source_nid 값에 따라 다른 색상 팔레트를 적용
+            if source_nid == 1:
+                cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)  # 남색 -> 붉은색
+            elif source_nid == 0:
+                cmap = LinearSegmentedColormap.from_list("BlueToLightBlue", ["blue", "lightblue"], N=256)  # 파랑 -> 연파랑
+            else:
+                cmap = sns.color_palette("Greens", as_cmap=True)  # 기타 색상 (필요 시 추가)
 
-        if pivot_table.empty:
-            print(f"No data for node {node}, source_nid {source_nid} after pivoting. Skipping heatmap.")
-            continue
+            plt.figure(figsize=(12, 8))
+            sns.heatmap(pivot_table, cmap=cmap, cbar=True)
+            plt.title(f"Node {node} - Source NID {source_nid} - Migrate Count")
+            plt.xlabel("Snapshot (Time)")
+            plt.ylabel("PFN")
+            plt.tight_layout()
 
-        # source_nid 값에 따라 다른 색상 팔레트를 적용
-        if source_nid == 1:
-            cmap = LinearSegmentedColormap.from_list("NavyToRed", ["navy", "red"], N=256)  # 남색 -> 붉은색
-        elif source_nid == 0:
-            cmap = LinearSegmentedColormap.from_list("BlueToLightBlue", ["blue", "lightblue"], N=256)  # 파랑 -> 연파랑
-        else:
-            cmap = sns.color_palette("Greens", as_cmap=True)  # 기타 색상 (필요 시 추가)
-
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(pivot_table, cmap=cmap, cbar=True)
-        plt.title(f"Node {node} - Source NID {source_nid} - Migrate Count")
-        plt.xlabel("Snapshot (Time)")
-        plt.ylabel("PFN")
-        plt.tight_layout()
-
-        filename = f"node_{node}_source_nid_{source_nid}_heatmap.png"
-        plt.savefig(filename)
-        plt.close()
-        print(f"Heatmap for node {node}, source_nid {source_nid} saved as '{filename}'.")
-
+            filename = f"node_{node}_source_nid_{source_nid}_heatmap.png"
+            plt.savefig(filename)
+            plt.close()
+            print(f"Heatmap for node {node}, source_nid {source_nid} saved as '{filename}'.")
 
     if os.path.exists(numa_file):
         try:
