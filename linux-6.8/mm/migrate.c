@@ -56,6 +56,7 @@
 #include <linux/mmzone.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <linux/mm.h>
 
 #include <asm/tlbflush.h>
 
@@ -626,7 +627,7 @@ void folio_migrate_flags(struct folio *newfolio, struct folio *folio)
 	//[hayong] auto numa profiler
 	copy_migrate_count(newfolio, folio);
 	folio_migrate_count_inc(newfolio);
-	set_migrate_count(folio, 0);
+	set_folio_migrate_count(folio, 0);
 
 	folio_migrate_ksm(newfolio, folio);
 	/*
@@ -690,7 +691,7 @@ int migrate_folio_extra(struct address_space *mapping, struct folio *dst,
 	else
 		folio_migrate_flags(dst, src);
 	
-	inc_migrate_count(dst);
+	folio_migrate_count_inc(dst);
 	return MIGRATEPAGE_SUCCESS;
 }
 
@@ -1822,7 +1823,7 @@ move:
 				if (numa_profile_stat && numa_profile_stat[dest_nid]) {
 					numa_profile_stat[dest_nid][offset].source_nid = source_nid;
 					int folio_migrate_count = folio_migrate_count(dst);
-					set_migrate_count(numa_profile_stat[dest_nid][offset], folio_migrate_count);
+					set_migrate_count(&numa_profile_stat[dest_nid][offset], folio_migrate_count);
 				}
 				stats->nr_succeeded += nr_pages;
 				stats->nr_thp_succeeded += is_thp;
