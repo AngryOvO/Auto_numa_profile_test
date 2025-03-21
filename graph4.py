@@ -127,7 +127,7 @@ def main():
                 index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
             ).fillna(0)
             pivot_same = pivot_same.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-            sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Blue", ["blue", "lightblue"], N=256),
+            sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "blue", "lightblue"], N=256),
                         cbar=True)
 
         # 다른 노드 데이터
@@ -136,7 +136,7 @@ def main():
                 index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
             ).fillna(0)
             pivot_diff = pivot_diff.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-            sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Red", ["navy", "red"], N=256),
+            sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "red", "yellow"], N=256),
                         cbar=True)
 
         plt.title(f"Node {node} - Migration Heatmap")
