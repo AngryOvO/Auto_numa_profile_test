@@ -177,7 +177,45 @@ def main():
         tasks = []
         for node in all_nodes:
             node_df = df[df['node'] == node]
-            tasks.append(executor.submit(generate_heatmap_for_node, node, node_df, all_snapshots))
+
+            if node_df.empty:
+                print(f"No data for node {node}. Skipping heatmap generation.")
+                continue
+
+            # 같은 노드에서 마이그레이션된 데이터 → 푸른색
+            same_source_df = node_df[node_df['source_nid'] == node]
+            # 다른 노드에서 마이그레이션된 데이터 → 붉은색
+            diff_source_df = node_df[node_df['source_nid'] != node]
+
+            plt.figure(figsize=(12, 8))
+
+            # 같은 노드 데이터
+            if not same_source_df.empty:
+                pivot_same = same_source_df.pivot_table(
+                    index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
+                ).fillna(0)
+                pivot_same = pivot_same.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
+                sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "blue", "lightblue"], N=256),
+                            cbar=True)
+
+            # 다른 노드 데이터
+            if not diff_source_df.empty:
+                pivot_diff = diff_source_df.pivot_table(
+                    index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
+                ).fillna(0)
+                pivot_diff = pivot_diff.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
+                sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "red", "yellow"], N=256),
+                            cbar=True)
+
+            plt.title(f"Node {node} - Migration Heatmap")
+            plt.xlabel("Snapshot (Time)")
+            plt.ylabel("PFN")
+            plt.tight_layout()
+
+            filename = f"node_{node}_migration_heatmap.png"
+            plt.savefig(filename)
+            plt.close()
+            print(f"Heatmap for node {node} saved as '{filename}'.")
 
         # 모든 작업 완료 대기
         for task in tasks:
