@@ -196,25 +196,33 @@ def main():
             full_pfn_range = range(start_pfn, end_pfn + 1)
             pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
 
-        # 히트맵 생성
+        # 컬러맵 범위 설정
+        vmax = pivot_same.values.max() if not pivot_same.empty else 1
         sns.heatmap(
             pivot_same,
             cmap=LinearSegmentedColormap.from_list(
                 "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
             ),
             cbar=True,
-        )
-
+            vmin=0,  # 최소값을 0으로 고정
+            vmax=vmax,  # 최대값을 데이터의 최대값으로 설정
+            annot=True,  # 셀에 값 표시
+            fmt="d",     # 정수 형식으로 표시
+        )node} - Migration Heatmap")
+        plt.xlabel("Snapshot (Time)")
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
         plt.ylabel("PFN")
         plt.tight_layout()
-
-        filename = f"node_{node}_migration_heatmap.png"
         plt.savefig(filename)
+        filename = f"node_{node}_migration_heatmap.png"        plt.close()
+        plt.savefig(filename)r node {node} saved as '{filename}'.")
         plt.close()
         print(f"Heatmap for node {node} saved as '{filename}'.")
 
 
-if __name__ == "__main__":
+
+
+
+    main()if __name__ == "__main__":if __name__ == "__main__":
     main()
