@@ -144,14 +144,11 @@ def main():
             print(f"No data for node {node}. Skipping heatmap generation.")
             continue
 
-        # 같은 노드에서 마이그레이션된 데이터 → 푸른색
+        # 같은 노드에서 마이그레이션된 데이터 → 열화상 색상
         same_source_df = node_df[node_df["source_nid"] == node]
-        # 다른 노드에서 마이그레이션된 데이터 → 붉은색
-        diff_source_df = node_df[node_df["source_nid"] != node]
 
         plt.figure(figsize=(12, 8))
 
-        # 같은 노드 데이터
         if not same_source_df.empty:
             pivot_same = same_source_df.pivot_table(
                 index="pfn",
@@ -160,35 +157,20 @@ def main():
                 aggfunc="sum",
                 fill_value=0,
             ).fillna(0)
-            pivot_same = pivot_same.reindex(
-                columns=all_snapshots, fill_value=0
-            )  # 모든 스냅샷 포함
+
+            # 노드의 전체 PFN 범위를 포함하도록 강제 설정
+            start_pfn, end_pfn = node_ranges[node]
+            full_pfn_range = range(start_pfn, end_pfn + 1)
+            pivot_same = pivot_same.reindex(index=full_pfn_range, fill_value=0)
+
+            mask = pivot_same == 0
             sns.heatmap(
                 pivot_same,
                 cmap=LinearSegmentedColormap.from_list(
-                    "Thermal", ["navy", "blue", "lightblue"], N=256
+                    "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
                 ),
                 cbar=True,
-            )
-
-        # 다른 노드 데이터
-        if not diff_source_df.empty:
-            pivot_diff = diff_source_df.pivot_table(
-                index="pfn",
-                columns="snapshot",
-                values="migrate_count",
-                aggfunc="sum",
-                fill_value=0,
-            ).fillna(0)
-            pivot_diff = pivot_diff.reindex(
-                columns=all_snapshots, fill_value=0
-            )  # 모든 스냅샷 포함
-            sns.heatmap(
-                pivot_diff,
-                cmap=LinearSegmentedColormap.from_list(
-                    "Thermal", ["navy", "red", "yellow"], N=256
-                ),
-                cbar=True,
+                mask=mask,  # 값이 0인 셀을 마스킹
             )
 
         plt.title(f"Node {node} - Migration Heatmap")
