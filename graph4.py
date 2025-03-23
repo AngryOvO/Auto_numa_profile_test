@@ -49,7 +49,6 @@ def execute_migrate_table_reset():
     if ret < 0:
         print(f"Error: migrate_table_reset system call failed with return code {ret}.")
         sys.exit(1)
-    print("migrate_table_reset executed successfully.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -111,7 +110,6 @@ def main():
                             snapshot,
                         ]
                     )
-            print(f"Snapshot {snapshot}: Collected {len(collected_data)} entries.")
             time.sleep(args.interval)
 
         # 워크로드 종료 후 추가 데이터 수집
@@ -140,7 +138,6 @@ def main():
                             snapshot,
                         ]
                     )
-            print(f"Snapshot {snapshot}: Collected {len(collected_data)} entries.")
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
