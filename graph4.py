@@ -55,9 +55,17 @@ def main():
     parser = argparse.ArgumentParser(
         description="Collects /proc/numa_folio_stats data and generates heatmaps."
     )
-    parser.add_argument("command", nargs="+", help="Workload command to execute.")
-    parser.add_argument("--interval", type=float, default=0.5, help="Data collection interval (seconds).")
+    parser.add_argument(
+        "command", nargs=argparse.REMAINDER, help="Workload command to execute."
+    )
+    parser.add_argument(
+        "--interval", type=float, default=0.5, help="Data collection interval (seconds)."
+    )
     args = parser.parse_args()
+
+    if not args.command:
+        print("Error: No workload command provided.")
+        sys.exit(1)
 
     # 워크로드 실행 전에 migrate_table_reset 실행
     execute_migrate_table_reset()
@@ -75,23 +83,34 @@ def main():
 
     collected_data = []
     snapshot = 0
-    numa_file = '/proc/numa_folio_stats'
+    numa_file = "/proc/numa_folio_stats"
 
     print("Starting data collection...")
     try:
         while proc.poll() is None:
             snapshot += 1
             try:
-                with open(numa_file, 'r') as f:
+                with open(numa_file, "r") as f:
                     lines = f.readlines()
             except Exception as e:
                 print(f"Failed to read '{numa_file}': {e}")
                 sys.exit(1)
 
             for line in lines:
-                m = re.search(r'folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)', line)
+                m = re.search(
+                    r"folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)",
+                    line,
+                )
                 if m:
-                    collected_data.append([int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), snapshot])
+                    collected_data.append(
+                        [
+                            int(m.group(1)),
+                            int(m.group(2)),
+                            int(m.group(3)),
+                            int(m.group(4)),
+                            snapshot,
+                        ]
+                    )
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
@@ -106,46 +125,71 @@ def main():
         return
 
     # 데이터프레임 생성 및 스냅샷 범위 확보
-    df = pd.DataFrame(collected_data, columns=['node', 'pfn', 'source_nid', 'migrate_count', 'snapshot'])
+    df = pd.DataFrame(
+        collected_data,
+        columns=["node", "pfn", "source_nid", "migrate_count", "snapshot"],
+    )
     print("Collected data sample:\n", df.head())
 
-    all_snapshots = range(df['snapshot'].min(), df['snapshot'].max() + 1)
-    node_ranges = parse_node_pfn_stats('/proc/node_pfn_stats')
+    all_snapshots = range(df["snapshot"].min(), df["snapshot"].max() + 1)
+    node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
     print("Node PFN ranges:\n", node_ranges)
 
-    all_nodes = set(df['node'].unique())
+    all_nodes = set(df["node"].unique())
 
     for node in all_nodes:
-        node_df = df[df['node'] == node]
+        node_df = df[df["node"] == node]
 
         if node_df.empty:
             print(f"No data for node {node}. Skipping heatmap generation.")
             continue
 
         # 같은 노드에서 마이그레이션된 데이터 → 푸른색
-        same_source_df = node_df[node_df['source_nid'] == node]
+        same_source_df = node_df[node_df["source_nid"] == node]
         # 다른 노드에서 마이그레이션된 데이터 → 붉은색
-        diff_source_df = node_df[node_df['source_nid'] != node]
+        diff_source_df = node_df[node_df["source_nid"] != node]
 
         plt.figure(figsize=(12, 8))
 
         # 같은 노드 데이터
         if not same_source_df.empty:
             pivot_same = same_source_df.pivot_table(
-                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
+                index="pfn",
+                columns="snapshot",
+                values="migrate_count",
+                aggfunc="sum",
+                fill_value=0,
             ).fillna(0)
-            pivot_same = pivot_same.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-            sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "blue", "lightblue"], N=256),
-                        cbar=True)
+            pivot_same = pivot_same.reindex(
+                columns=all_snapshots, fill_value=0
+            )  # 모든 스냅샷 포함
+            sns.heatmap(
+                pivot_same,
+                cmap=LinearSegmentedColormap.from_list(
+                    "Thermal", ["navy", "blue", "lightblue"], N=256
+                ),
+                cbar=True,
+            )
 
         # 다른 노드 데이터
         if not diff_source_df.empty:
             pivot_diff = diff_source_df.pivot_table(
-                index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
+                index="pfn",
+                columns="snapshot",
+                values="migrate_count",
+                aggfunc="sum",
+                fill_value=0,
             ).fillna(0)
-            pivot_diff = pivot_diff.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-            sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "red", "yellow"], N=256),
-                        cbar=True)
+            pivot_diff = pivot_diff.reindex(
+                columns=all_snapshots, fill_value=0
+            )  # 모든 스냅샷 포함
+            sns.heatmap(
+                pivot_diff,
+                cmap=LinearSegmentedColormap.from_list(
+                    "Thermal", ["navy", "red", "yellow"], N=256
+                ),
+                cbar=True,
+            )
 
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
@@ -156,6 +200,7 @@ def main():
         plt.savefig(filename)
         plt.close()
         print(f"Heatmap for node {node} saved as '{filename}'.")
+
 
 if __name__ == "__main__":
     main()
