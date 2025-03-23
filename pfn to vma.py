@@ -62,16 +62,8 @@ def main():
     # 워크로드 실행 전에 migrate_table_reset 실행
     execute_migrate_table_reset()
 
-    print("Executing workload:", " ".join(args.command))
-    try:
-        # 워크로드 실행
-        proc = subprocess.Popen(args.command)
-    except FileNotFoundError:
-        print(f"Error: Command '{args.command[0]}' not found.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error executing command '{args.command}': {e}")
-        sys.exit(1)
+    print("Executing workload:", args.command)
+    proc = subprocess.Popen(args.command)
 
     collected_data = []
     snapshot = 0
