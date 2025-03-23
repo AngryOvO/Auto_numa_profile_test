@@ -205,6 +205,14 @@ EXPORT_SYMBOL(node_states);
 
 gfp_t gfp_allowed_mask __read_mostly = GFP_BOOT_MASK;
 
+
+//[hayong] auto numa profiling
+static unsigned long get_pfn_for_node(int nid, unsigned long pfn)
+{
+	unsigned long node_base_pfn = node_start_pfn(nid);  // 해당 노드의 첫 pfn
+	return pfn - node_base_pfn;  // pfn이 해당 노드의 시작 pfn부터 차감된 인덱스
+}
+
 /*
  * A cached value of the page's pageblock's migratetype, used when the page is
  * put on a pcplist. Used to avoid the pageblock migratetype lookup when
@@ -4659,11 +4667,6 @@ EXPORT_SYMBOL(get_zeroed_page);
  * spinlock, but not in NMI context or while holding a raw spinlock.
  */
 
-static unsigned long get_pfn_for_node(int nid, unsigned long pfn)
-{
-	unsigned long node_base_pfn = node_start_pfn(nid);  // 해당 노드의 첫 pfn
-	return pfn - node_base_pfn;  // pfn이 해당 노드의 시작 pfn부터 차감된 인덱스
-}
 
 void __free_pages(struct page *page, unsigned int order)
 {
