@@ -161,47 +161,56 @@ def main():
     )
     print("Collected data sample:\n", df.head())
 
-    all_snapshots = range(df["snapshot"].min(), df["snapshot"].max() + 1)
     node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
     print("Node PFN ranges:\n", node_ranges)
 
-    all_nodes = set(df["node"].unique())
+    # 스냅샷 범위 설정
+    if df.empty:
+        print("No data collected. Using default snapshot range.")
+        all_snapshots = range(0, 2)  # 기본 스냅샷 범위
+    else:
+        all_snapshots = range(df["snapshot"].min(), df["snapshot"].max() + 1)
 
-    for node in all_nodes:
-        node_df = df[df["node"] == node]
-
-        if node_df.empty:
-            print(f"No data for node {node}. Skipping heatmap generation.")
-            continue
-
-        # 같은 노드에서 마이그레이션된 데이터 → 열화상 색상
-        same_source_df = node_df[node_df["source_nid"] == node]
-
-        plt.figure(figsize=(12, 8))
-
-        if not same_source_df.empty:
-            pivot_same = same_source_df.pivot_table(
-                index="pfn",
-                columns="snapshot",
-                values="migrate_count",
-                aggfunc="sum",
-                fill_value=0,
-            ).fillna(0)
-
-            # 노드의 전체 PFN 범위를 포함하도록 강제 설정
+    # 노드별 히트맵 생성
+    for node in node_ranges.keys():  # 모든 노드에 대해 처리
+        if node not in df["node"].unique():
+            print(f"No data for node {node}. Generating empty heatmap.")
             start_pfn, end_pfn = node_ranges[node]
             full_pfn_range = range(start_pfn, end_pfn + 1)
-            pivot_same = pivot_same.reindex(index=full_pfn_range, fill_value=0)
+            pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
+        else:
+            node_df = df[df["node"] == node]
+            same_source_df = node_df[node_df["source_nid"] == node]
 
-            mask = pivot_same == 0
-            sns.heatmap(
-                pivot_same,
-                cmap=LinearSegmentedColormap.from_list(
-                    "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
-                ),
-                cbar=True,
-                mask=mask,  # 값이 0인 셀을 마스킹
-            )
+            if not same_source_df.empty:
+                pivot_same = same_source_df.pivot_table(
+                    index="pfn",
+                    columns="snapshot",
+                    values="migrate_count",
+                    aggfunc="sum",
+                    fill_value=0,
+                ).fillna(0)
+
+                # 노드의 전체 PFN 범위를 포함하도록 강제 설정
+                start_pfn, end_pfn = node_ranges[node]
+                full_pfn_range = range(start_pfn, end_pfn + 1)
+                pivot_same = pivot_same.reindex(index=full_pfn_range, fill_value=0)
+            else:
+                print(f"No migration data for node {node}. Generating empty heatmap.")
+                start_pfn, end_pfn = node_ranges[node]
+                full_pfn_range = range(start_pfn, end_pfn + 1)
+                pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
+
+        # 히트맵 생성
+        mask = pivot_same == 0
+        sns.heatmap(
+            pivot_same,
+            cmap=LinearSegmentedColormap.from_list(
+                "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
+            ),
+            cbar=True,
+            mask=mask,  # 값이 0인 셀을 마스킹
+        )
 
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
