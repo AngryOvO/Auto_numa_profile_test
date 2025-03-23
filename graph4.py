@@ -112,40 +112,12 @@ def main():
                     )
             time.sleep(args.interval)
 
-        # 워크로드 종료 후 추가 데이터 수집
-        print("Workload terminated. Collecting additional data...")
-        for _ in range(5):  # 추가로 5번 데이터를 수집
-            snapshot += 1
-            try:
-                with open(numa_file, "r") as f:
-                    lines = f.readlines()
-            except Exception as e:
-                print(f"Failed to read '{numa_file}': {e}")
-                break
-
-            for line in lines:
-                m = re.search(
-                    r"folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)",
-                    line,
-                )
-                if m:
-                    collected_data.append(
-                        [
-                            int(m.group(1)),
-                            int(m.group(2)),
-                            int(m.group(3)),
-                            int(m.group(4)),
-                            snapshot,
-                        ]
-                    )
-            time.sleep(args.interval)
-
     except KeyboardInterrupt:
         print("Data collection interrupted. Terminating workload...")
         proc.terminate()
         proc.wait()
 
-    print("Workload terminated. Generating heatmaps...")
+    print("Data collection complete. Generating heatmaps...")
 
     if not collected_data:
         print("No data collected. Exiting.")
@@ -171,11 +143,9 @@ def main():
     # 노드별 히트맵 생성
     for node in node_ranges.keys():  # 모든 노드에 대해 처리
         node_df = df[df["node"] == node]
-        print(f"Node {node}: Filtered node_df:\n{node_df.head()}")
 
         # 모든 데이터를 포함
         same_source_df = node_df
-        print(f"Node {node}: Filtered same_source_df:\n{same_source_df.head()}")
 
         if not same_source_df.empty:
             pivot_same = same_source_df.pivot_table(
@@ -208,21 +178,16 @@ def main():
             vmax=vmax,  # 최대값을 데이터의 최대값으로 설정
             annot=True,  # 셀에 값 표시
             fmt="d",     # 정수 형식으로 표시
-        )node} - Migration Heatmap")
+        )
         plt.xlabel("Snapshot (Time)")
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
         plt.ylabel("PFN")
         plt.tight_layout()
+        filename = f"node_{node}_migration_heatmap.png"
         plt.savefig(filename)
-        filename = f"node_{node}_migration_heatmap.png"        plt.close()
-        plt.savefig(filename)r node {node} saved as '{filename}'.")
-        plt.close()
         print(f"Heatmap for node {node} saved as '{filename}'.")
+        plt.close()
 
-
-
-
-
-    main()if __name__ == "__main__":if __name__ == "__main__":
+if __name__ == "__main__":
     main()
