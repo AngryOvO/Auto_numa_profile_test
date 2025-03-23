@@ -87,7 +87,7 @@ def main():
 
     print("Starting data collection...")
     try:
-        while proc.poll() is None:
+        while proc.poll() is None:  # 워크로드가 실행 중일 때
             snapshot += 1
             try:
                 with open(numa_file, "r") as f:
@@ -111,6 +111,36 @@ def main():
                             snapshot,
                         ]
                     )
+            print(f"Snapshot {snapshot}: Collected {len(collected_data)} entries.")
+            time.sleep(args.interval)
+
+        # 워크로드 종료 후 추가 데이터 수집
+        print("Workload terminated. Collecting additional data...")
+        for _ in range(5):  # 추가로 5번 데이터를 수집
+            snapshot += 1
+            try:
+                with open(numa_file, "r") as f:
+                    lines = f.readlines()
+            except Exception as e:
+                print(f"Failed to read '{numa_file}': {e}")
+                break
+
+            for line in lines:
+                m = re.search(
+                    r"folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)",
+                    line,
+                )
+                if m:
+                    collected_data.append(
+                        [
+                            int(m.group(1)),
+                            int(m.group(2)),
+                            int(m.group(3)),
+                            int(m.group(4)),
+                            snapshot,
+                        ]
+                    )
+            print(f"Snapshot {snapshot}: Collected {len(collected_data)} entries.")
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
