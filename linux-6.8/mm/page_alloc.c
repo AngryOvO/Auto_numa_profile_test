@@ -1532,6 +1532,18 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 
 	set_page_owner(page, order, gfp_flags);
 	page_table_check_alloc(page, order);
+
+	//[hayong] autonuma profiler
+	int nid = page_to_nid(page);
+
+	if (numa_profile_stat && numa_profile_stat[nid]) 
+	{
+		int pfn = page_to_pfn(page);
+		int offset = get_pfn_for_node(nid, pfn);
+		init_page_migration_count(page);
+		set_migrate_count(&numa_profile_stat[nid][offset], 0);
+		
+	}
 }
 
 static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
