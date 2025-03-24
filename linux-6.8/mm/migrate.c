@@ -66,6 +66,7 @@
 
 // [hayong] init struct array
 
+pid_t target_pid;
 struct numa_folio_stat **numa_profile_stat;
 static unsigned long get_pfn_for_node(int nid, unsigned long pfn);
 
@@ -1793,10 +1794,18 @@ move:
 		dst2 = list_next_entry(dst, lru);
 		list_for_each_entry_safe(folio, folio2, &unmap_folios, lru) {
 			// [hayong]
+
 			int source_nid = folio_nid(folio);
 			int dest_nid = folio_nid(dst);
 			int pfn = folio_pfn(dst);
 			int offset = get_pfn_for_node(dest_nid, pfn);
+
+			pid_t current_pid;
+
+			if(current->group_leader)
+				current_pid = current->group_leader->pid;
+			else
+				current_pid = current->pid;
 		
 			is_thp = folio_test_large(folio) && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
@@ -1820,7 +1829,7 @@ move:
 				break;
 			case MIGRATEPAGE_SUCCESS:
 			// [hayong]
-				if (numa_profile_stat && numa_profile_stat[dest_nid]) {
+				if ((target_pid == current_pid) && numa_profile_stat && numa_profile_stat[dest_nid]) {
 					numa_profile_stat[dest_nid][offset].source_nid = source_nid;
 					int new_folio_migrate_count = folio_migrate_count(dst);
 					set_migrate_count(&numa_profile_stat[dest_nid][offset], new_folio_migrate_count);
@@ -2690,58 +2699,73 @@ static unsigned long get_pfn_for_node(int nid, unsigned long pfn)
     return pfn - node_base_pfn;  // pfn이 해당 노드의 시작 pfn부터 차감된 인덱스
 }
 
-static int numa_folio_stats_show(struct seq_file *m, void *v)
+static int numa_mmap(struct file *file, struct vm_area_struct *vma)
 {
+    unsigned long size = vma->vm_end - vma->vm_start;
+    unsigned long total_size = 0;
+    unsigned long offset = 0;
     int nid;
 
-    // 각 노드를 순회
+    // NUMA 데이터의 총 크기 계산
     for_each_online_node(nid) {
-        if (!numa_profile_stat || !numa_profile_stat[nid])  // NULL 체크
-            continue;
+        total_size += sizeof(struct numa_folio_stat) * node_spanned_pages(nid);
+    }
 
-        struct numa_folio_stat *stat = numa_profile_stat[nid];  // 노드별 stat 포인터 가져오기
-        unsigned long start_pfn = node_start_pfn(nid); 
-        unsigned long end_pfn = node_end_pfn(nid);   
+    // 요청된 크기가 총 크기를 초과하면 오류 반환
+    if (size > total_size) {
+        return -EINVAL;
+    }
 
-        for (unsigned long pfn = start_pfn; pfn < end_pfn; pfn++) {
-            // pfn에 해당하는 stat가 있을 때만 출력
-            unsigned long node_pfn = get_pfn_for_node(nid, pfn);
-            if (atomic_read(&stat[node_pfn].current_migrate_count) > 0) {
-                seq_printf(m, "folio node : %d, pfn: %lu, source_nid: %d, migrate_count: %d\n", nid, 
-                            pfn, stat[node_pfn].source_nid, atomic_read(&stat[node_pfn].current_migrate_count));
+    // 각 노드의 데이터를 순차적으로 매핑
+    for_each_online_node(nid) {
+        unsigned long node_size = sizeof(struct numa_folio_stat) * node_spanned_pages(nid);
+        unsigned long node_offset = 0;
+
+        // 각 페이지를 개별적으로 매핑
+        while (node_offset < node_size) {
+            unsigned long pfn = vmalloc_to_pfn((char *)numa_profile_stat[nid] + node_offset);
+
+            if (remap_pfn_range(vma, vma->vm_start + offset + node_offset, pfn, PAGE_SIZE, vma->vm_page_prot)) {
+                return -EAGAIN;
             }
+
+            node_offset += PAGE_SIZE;
         }
+
+        offset += node_size;
     }
 
     return 0;
 }
 
-
-
-static int numa_folio_stats_open(struct inode *inode, struct file *file)
-{
-    return single_open(file, numa_folio_stats_show, NULL);
-}
-
-static const struct proc_ops numa_folio_stats_fops = {
-    .proc_open    = numa_folio_stats_open,
-    .proc_read    = seq_read,
-    .proc_lseek   = seq_lseek,
-    .proc_release = single_release,
+static const struct file_operations numa_fops = {
+    .owner = THIS_MODULE,
+    .mmap = numa_mmap,  // mmap 핸들러 연결
 };
 
-/* 커널 초기화 시 /proc/numa_folio_stats 생성 */
-static int __init numa_folio_proc_init(void)
+static int __init numa_mmap_init(void)
 {
-    proc_create("numa_folio_stats", 0444, NULL, &numa_folio_stats_fops);
+    int ret;
+
+    // 문자 디바이스 등록
+    ret = register_chrdev(240, "numa_mmap", &numa_fops);
+    if (ret < 0) {
+        printk(KERN_ERR "Failed to register NUMA mmap device\n");
+        return ret;
+    }
+
+    printk(KERN_INFO "NUMA mmap device registered\n");
     return 0;
 }
 
-/* 커널 종료 시 /proc/numa_folio_stats 제거 */
-static void __exit numa_folio_proc_exit(void)
+static void __exit numa_mmap_exit(void)
 {
-    remove_proc_entry("numa_folio_stats", NULL);
+    unregister_chrdev(240, "numa_mmap");
+    printk(KERN_INFO "NUMA mmap device unregistered\n");
 }
+
+module_init(numa_mmap_init);
+module_exit(numa_mmap_exit);
 
 static int node_pfn_stats_show(struct seq_file *m, void *v)
 {

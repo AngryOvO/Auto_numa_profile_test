@@ -7,6 +7,10 @@
         "notifier.h": "c",
         "kernel.h": "c",
         "init.h": "c",
-        "types.h": "c"
+        "types.h": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c"
     }
 }
