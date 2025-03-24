@@ -2764,7 +2764,6 @@ static void __exit numa_mmap_exit(void)
     printk(KERN_INFO "NUMA mmap device unregistered\n");
 }
 
-module_init(numa_mmap_init);
 module_exit(numa_mmap_exit);
 
 static int node_pfn_stats_show(struct seq_file *m, void *v)
@@ -2814,6 +2813,7 @@ static void __exit node_pfn_proc_exit(void)
 /* 커널 코드 직접 추가하므로 module_init/module_exit 대신 late_initcall 사용 */
 late_initcall(init_folio_stat);
 late_initcall(node_pfn_proc_init);
+late_initcall(numa_mmap_init);
 
 SYSCALL_DEFINE0(migrate_table_reset)
 {
