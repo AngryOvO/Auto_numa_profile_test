@@ -66,7 +66,7 @@
 
 // [hayong] init struct array
 
-pid_t target_pid;
+static pid_t target_pid = -1;
 struct numa_folio_stat **numa_profile_stat;
 static unsigned long get_pfn_for_node(int nid, unsigned long pfn);
 
@@ -2839,5 +2839,15 @@ SYSCALL_DEFINE0(migrate_table_reset)
     }
 
     printk(KERN_INFO "Migrate table reset complete.\n");
+    return 0;
+}
+
+SYSCALL_DEFINE1(set_target_pid, pid_t, pid)
+{
+    if (pid < 0)
+        return -EINVAL;
+
+    target_pid = pid;
+    printk(KERN_INFO "Target PID set to %d\n", target_pid);
     return 0;
 }
