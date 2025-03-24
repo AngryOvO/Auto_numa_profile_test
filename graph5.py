@@ -11,8 +11,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.colors import ListedColormap
-from concurrent.futures import ThreadPoolExecutor
 
 def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
     node_ranges = {}
@@ -51,175 +49,152 @@ def execute_migrate_table_reset():
     if ret < 0:
         print(f"Error: migrate_table_reset system call failed with return code {ret}.")
         sys.exit(1)
-    print("migrate_table_reset executed successfully.")
-
-def read_numa_folio_stats(start_pfn, end_pfn, snapshot, numa_file):
-    """특정 PFN 범위에 대해 /proc/numa_folio_stats 데이터를 읽고 처리"""
-    local_data = []
-    try:
-        with open(numa_file, 'r') as f:
-            lines = f.readlines()
-    except Exception as e:
-        print(f"Failed to read '{numa_file}': {e}")
-        return local_data
-
-    for line in lines:
-        m = re.search(r'folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)', line)
-        if m:
-            pfn = int(m.group(2))
-            if start_pfn <= pfn < end_pfn:  # PFN 범위 필터링
-                local_data.append([int(m.group(1)), pfn, int(m.group(3)), int(m.group(4)), snapshot])
-    return local_data
-
-def generate_heatmap_for_node(node, node_df, all_snapshots):
-    """특정 NUMA 노드에 대한 히트맵 생성"""
-    if node_df.empty:
-        print(f"No data for node {node}. Skipping heatmap generation.")
-        return
-
-    plt.figure(figsize=(12, 8))
-
-    # 고유한 source_nid 추출
-    unique_sources = node_df['source_nid'].unique()
-    colormap = generate_colormap(unique_sources)
-
-    # 각 source_nid에 대해 heatmap 생성
-    for i, source in enumerate(unique_sources):
-        source_df = node_df[node_df['source_nid'] == source]
-
-        if source_df.empty:
-            continue
-
-        pivot = source_df.pivot_table(
-            index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
-        ).fillna(0)
-        pivot = pivot.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-
-        sns.heatmap(pivot, cmap=colormap, cbar=True, cbar_kws={'label': f"Source Node {source}"})
-
-    plt.title(f"Node {node} - Migration Heatmap")
-    plt.xlabel("Snapshot (Time)")
-    plt.ylabel("PFN")
-    plt.tight_layout()
-
-    filename = f"node_{node}_migration_heatmap.png"
-    plt.savefig(filename)
-    plt.close()
-    print(f"Heatmap for node {node} saved as '{filename}'.")
 
 def main():
     parser = argparse.ArgumentParser(
         description="Collects /proc/numa_folio_stats data and generates heatmaps."
     )
-    parser.add_argument("command", nargs="+", help="Workload command to execute.")
-    parser.add_argument("--interval", type=float, default=0.5, help="Data collection interval (seconds).")
-    parser.add_argument("--threads", type=int, default=4, help="Number of threads for parallel processing.")
+    parser.add_argument(
+        "command", nargs=argparse.REMAINDER, help="Workload command to execute."
+    )
+    parser.add_argument(
+        "--interval", type=float, default=0.5, help="Data collection interval (seconds)."
+    )
     args = parser.parse_args()
+
+    if not args.command:
+        print("Error: No workload command provided.")
+        sys.exit(1)
 
     # 워크로드 실행 전에 migrate_table_reset 실행
     execute_migrate_table_reset()
 
-    print("Executing workload:", args.command)
-    proc = subprocess.Popen(args.command)
+    print("Executing workload:", " ".join(args.command))
+    try:
+        # 워크로드 실행
+        proc = subprocess.Popen(args.command)
+    except FileNotFoundError:
+        print(f"Error: Command '{args.command[0]}' not found.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error executing command '{args.command}': {e}")
+        sys.exit(1)
 
     collected_data = []
     snapshot = 0
-    numa_file = '/proc/numa_folio_stats'
+    numa_file = "/proc/numa_folio_stats"
 
     print("Starting data collection...")
     try:
-        while proc.poll() is None:
+        while proc.poll() is None:  # 워크로드가 실행 중일 때
             snapshot += 1
-            node_ranges = parse_node_pfn_stats('/proc/node_pfn_stats')
-            print("Node PFN ranges:\n", node_ranges)
+            try:
+                with open(numa_file, "r") as f:
+                    lines = f.readlines()  # 파일 전체를 한 번에 읽음
+            except Exception as e:
+                print(f"Failed to read '{numa_file}': {e}")
+                sys.exit(1)
 
-            # 스레드별로 PFN 범위를 나눔
-            tasks = []
-            with ThreadPoolExecutor(max_workers=args.threads) as executor:
-                for node, (start_pfn, end_pfn) in node_ranges.items():
-                    step = (end_pfn - start_pfn) // args.threads
-                    for i in range(args.threads):
-                        sub_start_pfn = start_pfn + i * step
-                        sub_end_pfn = start_pfn + (i + 1) * step if i < args.threads - 1 else end_pfn
-                        tasks.append(executor.submit(read_numa_folio_stats, sub_start_pfn, sub_end_pfn, snapshot, numa_file))
+            # 데이터 처리
+            for line in lines:
+                m = re.search(
+                    r"folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)",
+                    line,
+                )
+                if m:
+                    collected_data.append(
+                        [
+                            int(m.group(1)),  # node
+                            int(m.group(2)),  # pfn
+                            int(m.group(3)),  # source_nid
+                            int(m.group(4)),  # migrate_count
+                            snapshot,         # snapshot
+                        ]
+                    )
 
-                # 스레드 결과 수집
-                for task in tasks:
-                    collected_data.extend(task.result())
-
-            time.sleep(args.interval)
+            # 다음 스냅샷으로 바로 이동 (sleep 제거)
+            print(f"Snapshot {snapshot} collected with {len(lines)} lines.")
 
     except KeyboardInterrupt:
         print("Data collection interrupted. Terminating workload...")
         proc.terminate()
         proc.wait()
 
-    print("Workload terminated. Generating heatmaps...")
+    print("Data collection complete. Generating heatmaps...")
 
     if not collected_data:
         print("No data collected. Exiting.")
         return
 
     # 데이터프레임 생성 및 스냅샷 범위 확보
-    df = pd.DataFrame(collected_data, columns=['node', 'pfn', 'source_nid', 'migrate_count', 'snapshot'])
+    df = pd.DataFrame(
+        collected_data,
+        columns=["node", "pfn", "source_nid", "migrate_count", "snapshot"],
+    )
     print("Collected data sample:\n", df.head())
 
-    all_snapshots = range(df['snapshot'].min(), df['snapshot'].max() + 1)
-    all_nodes = set(df['node'].unique())
+    node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
+    print("Node PFN ranges:\n", node_ranges)
 
-    # 컬러 맵 생성 함수
-    def generate_colormap(unique_sources):
-        colors = plt.cm.tab20(np.linspace(0, 1, len(unique_sources)))  # 고유 source_nid 개수만큼 색상 생성
-        return ListedColormap(colors)
+    # 스냅샷 범위 설정
+    if df.empty:
+        print("No data collected. Using default snapshot range.")
+        all_snapshots = range(0, 2)  # 기본 스냅샷 범위
+    else:
+        all_snapshots = range(df["snapshot"].min(), df["snapshot"].max() + 1)
 
-    # 히트맵 생성 작업을 멀티스레드로 처리
-    with ThreadPoolExecutor(max_workers=args.threads) as executor:
-        tasks = []
-        for node in all_nodes:
-            node_df = df[df['node'] == node]
+    # 모든 노드에서의 최대 migrate_count 계산
+    global_vmax = df["migrate_count"].max() if not df.empty else 1
+    print(f"Global vmax (maximum migrate_count): {global_vmax}")
 
-            if node_df.empty:
-                print(f"No data for node {node}. Skipping heatmap generation.")
-                continue
+    # 노드별 히트맵 생성
+    for node in node_ranges.keys():  # 모든 노드에 대해 처리
+        node_df = df[df["node"] == node]
 
-            # 같은 노드에서 마이그레이션된 데이터 → 푸른색
-            same_source_df = node_df[node_df['source_nid'] == node]
-            # 다른 노드에서 마이그레이션된 데이터 → 붉은색
-            diff_source_df = node_df[node_df['source_nid'] != node]
+        # 모든 데이터를 포함
+        same_source_df = node_df
 
-            plt.figure(figsize=(12, 8))
+        if not same_source_df.empty:
+            pivot_same = same_source_df.pivot_table(
+                index="pfn",
+                columns="snapshot",
+                values="migrate_count",
+                aggfunc="sum",
+                fill_value=0,
+            ).fillna(0)
 
-            # 같은 노드 데이터
-            if not same_source_df.empty:
-                pivot_same = same_source_df.pivot_table(
-                    index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
-                ).fillna(0)
-                pivot_same = pivot_same.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-                sns.heatmap(pivot_same, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "blue", "lightblue"], N=256),
-                            cbar=True)
+            # 노드의 전체 PFN 범위를 포함하도록 강제 설정
+            start_pfn, end_pfn = node_ranges[node]
+            full_pfn_range = range(start_pfn, end_pfn + 1)
+            pivot_same = pivot_same.reindex(index=full_pfn_range, fill_value=0)
+        else:
+            print(f"No migration data for node {node}. Generating empty heatmap.")
+            start_pfn, end_pfn = node_ranges[node]
+            full_pfn_range = range(start_pfn, end_pfn + 1)
+            pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
 
-            # 다른 노드 데이터
-            if not diff_source_df.empty:
-                pivot_diff = diff_source_df.pivot_table(
-                    index='pfn', columns='snapshot', values='migrate_count', aggfunc='sum', fill_value=0
-                ).fillna(0)
-                pivot_diff = pivot_diff.reindex(columns=all_snapshots, fill_value=0)  # 모든 스냅샷 포함
-                sns.heatmap(pivot_diff, cmap=LinearSegmentedColormap.from_list("Thermal", ["navy", "red", "yellow"], N=256),
-                            cbar=True)
+        # 컬러맵 범위 설정 (vmin=0, vmax=global_vmax)
+        sns.heatmap(
+            pivot_same,
+            cmap=LinearSegmentedColormap.from_list(
+                "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
+            ),
+            cbar=True,
+            vmin=0,  # 최소값을 0으로 고정
+            vmax=global_vmax,  # 최대값을 모든 노드의 최대 migrate_count로 설정
+            annot=True,  # 셀에 값 표시
+            fmt="d",     # 정수 형식으로 표시
+        )
 
-            plt.title(f"Node {node} - Migration Heatmap")
-            plt.xlabel("Snapshot (Time)")
-            plt.ylabel("PFN")
-            plt.tight_layout()
+        plt.title(f"Node {node} - Migration Heatmap")
+        plt.xlabel("Snapshot (Time)")
+        plt.ylabel("PFN")
+        plt.tight_layout()
 
-            filename = f"node_{node}_migration_heatmap.png"
-            plt.savefig(filename)
-            plt.close()
-            print(f"Heatmap for node {node} saved as '{filename}'.")
-
-        # 모든 작업 완료 대기
-        for task in tasks:
-            task.result()
+        filename = f"node_{node}_migration_heatmap.png"
+        plt.savefig(filename)
+        print(f"Heatmap for node {node} saved as '{filename}'.")
+        plt.close()
 
 if __name__ == "__main__":
     main()

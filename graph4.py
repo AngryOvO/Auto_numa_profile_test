@@ -140,6 +140,10 @@ def main():
     else:
         all_snapshots = range(df["snapshot"].min(), df["snapshot"].max() + 1)
 
+    # 모든 노드에서의 최대 migrate_count 계산
+    global_vmax = df["migrate_count"].max() if not df.empty else 1
+    print(f"Global vmax (maximum migrate_count): {global_vmax}")
+
     # 노드별 히트맵 생성
     for node in node_ranges.keys():  # 모든 노드에 대해 처리
         node_df = df[df["node"] == node]
@@ -166,8 +170,7 @@ def main():
             full_pfn_range = range(start_pfn, end_pfn + 1)
             pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
 
-        # 컬러맵 범위 설정
-        vmax = pivot_same.values.max() if not pivot_same.empty else 1
+        # 컬러맵 범위 설정 (vmin=0, vmax=global_vmax)
         sns.heatmap(
             pivot_same,
             cmap=LinearSegmentedColormap.from_list(
@@ -175,15 +178,16 @@ def main():
             ),
             cbar=True,
             vmin=0,  # 최소값을 0으로 고정
-            vmax=vmax,  # 최대값을 데이터의 최대값으로 설정
+            vmax=global_vmax,  # 최대값을 모든 노드의 최대 migrate_count로 설정
             annot=True,  # 셀에 값 표시
             fmt="d",     # 정수 형식으로 표시
         )
-        plt.xlabel("Snapshot (Time)")
+
         plt.title(f"Node {node} - Migration Heatmap")
         plt.xlabel("Snapshot (Time)")
         plt.ylabel("PFN")
         plt.tight_layout()
+
         filename = f"node_{node}_migration_heatmap.png"
         plt.savefig(filename)
         print(f"Heatmap for node {node} saved as '{filename}'.")
