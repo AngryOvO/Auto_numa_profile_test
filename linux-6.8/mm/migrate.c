@@ -2772,16 +2772,25 @@ module_exit(numa_mmap_exit);
 static int node_pfn_stats_show(struct seq_file *m, void *v)
 {
     int nid;
+    unsigned long total_size = 0;
 
     // 각 노드를 순회
     for_each_online_node(nid) {
         unsigned long start_pfn = node_start_pfn(nid); 
         unsigned long end_pfn = node_end_pfn(nid);   
+        unsigned long pages_per_node = node_spanned_pages(nid);
+        unsigned long node_size = sizeof(struct numa_folio_stat) * pages_per_node;
 
-        // 각 노드에 대해 PFN 범위 출력
+        total_size += node_size;
+
+        // 각 노드에 대해 PFN 범위와 크기 출력
         seq_printf(m, "node %d\n", nid);
         seq_printf(m, "start pfn %lu, end pfn %lu\n", start_pfn, end_pfn);
+        seq_printf(m, "node size: %lu bytes\n", node_size);
     }
+
+    // 전체 크기 출력
+    seq_printf(m, "total size: %lu bytes\n", total_size);
 
     return 0;
 }
