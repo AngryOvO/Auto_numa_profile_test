@@ -3,14 +3,20 @@ import argparse
 import subprocess
 import sys
 import time
-import re
-import os
+import mmap
 import ctypes
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
+
+# 커널에서 사용하는 구조체 정의
+class NumaFolioStat(ctypes.Structure):
+    _fields_ = [
+        ("source_nid", ctypes.c_int),          # 원래 NUMA 노드 ID
+        ("migrate_count", ctypes.c_int),       # 마이그레이션 횟수 (atomic_t를 int로 매핑)
+    ]
 
 def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
     node_ranges = {}
@@ -39,6 +45,49 @@ def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
                 current_node = None
     return node_ranges
 
+def get_total_size(filepath='/proc/node_pfn_stats'):
+    """
+    /proc/node_pfn_stats에서 NUMA 데이터의 총 크기를 계산합니다.
+    """
+    total_size = 0
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if line.startswith("total size"):
+                    total_size = int(line.split(":")[1].strip().split()[0])
+                    break
+    except Exception as e:
+        print(f"Error reading total size from {filepath}: {e}")
+        sys.exit(1)
+    return total_size
+
+def read_numa_data_mmap(device_path="/dev/numa_mmap", size=4096, node_ranges=None):
+    """
+    mmap을 사용하여 NUMA 데이터를 읽습니다.
+    """
+    try:
+        with open(device_path, "r+b") as f:
+            # 메모리 매핑
+            mmapped_data = mmap.mmap(f.fileno(), size, access=mmap.ACCESS_READ)
+
+            # 구조체 배열로 매핑
+            data = []
+            offset = 0
+            for nid, (start_pfn, end_pfn) in node_ranges.items():
+                node_data = []
+                for pfn in range(start_pfn, end_pfn + 1):
+                    # 구조체 읽기
+                    stat = NumaFolioStat.from_buffer_copy(mmapped_data[offset:offset + ctypes.sizeof(NumaFolioStat)])
+                    node_data.append((nid, pfn, stat.source_nid, stat.migrate_count))
+                    offset += ctypes.sizeof(NumaFolioStat)
+                data.extend(node_data)
+
+            mmapped_data.close()
+            return data
+    except Exception as e:
+        print(f"Error reading from {device_path} using mmap: {e}")
+        sys.exit(1)
+
 def execute_migrate_table_reset():
     SYS_MIGRATE_TABLE_RESET = 462  # 시스템 콜 번호를 확인하여 설정
     libc = ctypes.CDLL("libc.so.6")
@@ -52,7 +101,7 @@ def execute_migrate_table_reset():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Collects /proc/numa_folio_stats data and generates heatmaps."
+        description="Collects NUMA data using mmap and generates heatmaps."
     )
     parser.add_argument(
         "command", nargs=argparse.REMAINDER, help="Workload command to execute."
@@ -65,6 +114,16 @@ def main():
     if not args.command:
         print("Error: No workload command provided.")
         sys.exit(1)
+
+    # NUMA 데이터 크기 계산
+    mmap_size = get_total_size()
+    if mmap_size == 0:
+        print("Error: Failed to determine mmap size.")
+        sys.exit(1)
+
+    # NUMA 노드 범위 파싱
+    node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
+    print("Node PFN ranges:\n", node_ranges)
 
     # 워크로드 실행 전에 migrate_table_reset 실행
     execute_migrate_table_reset()
@@ -82,34 +141,16 @@ def main():
 
     collected_data = []
     snapshot = 0
-    numa_file = "/proc/numa_folio_stats"
+    mmap_device = "/dev/numa_mmap"
 
     print("Starting data collection...")
     try:
         while proc.poll() is None:  # 워크로드가 실행 중일 때
             snapshot += 1
-            try:
-                with open(numa_file, "r") as f:
-                    lines = f.readlines()
-            except Exception as e:
-                print(f"Failed to read '{numa_file}': {e}")
-                sys.exit(1)
-
-            for line in lines:
-                m = re.search(
-                    r"folio node : (\d+), pfn: (\d+), source_nid: (\d+), migrate_count: (\d+)",
-                    line,
-                )
-                if m:
-                    collected_data.append(
-                        [
-                            int(m.group(1)),
-                            int(m.group(2)),
-                            int(m.group(3)),
-                            int(m.group(4)),
-                            snapshot,
-                        ]
-                    )
+            # mmap을 통해 데이터 읽기
+            raw_data = read_numa_data_mmap(mmap_device, mmap_size, node_ranges)
+            for nid, pfn, source_nid, migrate_count in raw_data:
+                collected_data.append([nid, pfn, source_nid, migrate_count, snapshot])
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
@@ -130,9 +171,6 @@ def main():
     )
     print("Collected data sample:\n", df.head())
 
-    node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
-    print("Node PFN ranges:\n", node_ranges)
-
     # 스냅샷 범위 설정
     if df.empty:
         print("No data collected. Using default snapshot range.")
@@ -148,11 +186,8 @@ def main():
     for node in node_ranges.keys():  # 모든 노드에 대해 처리
         node_df = df[df["node"] == node]
 
-        # 모든 데이터를 포함
-        same_source_df = node_df
-
-        if not same_source_df.empty:
-            pivot_same = same_source_df.pivot_table(
+        if not node_df.empty:
+            pivot = node_df.pivot_table(
                 index="pfn",
                 columns="snapshot",
                 values="migrate_count",
@@ -160,38 +195,27 @@ def main():
                 fill_value=0,
             ).fillna(0)
 
-            # 노드의 전체 PFN 범위를 포함하도록 강제 설정
-            start_pfn, end_pfn = node_ranges[node]
-            full_pfn_range = range(start_pfn, end_pfn + 1)
-            pivot_same = pivot_same.reindex(index=full_pfn_range, fill_value=0)
-        else:
-            print(f"No migration data for node {node}. Generating empty heatmap.")
-            start_pfn, end_pfn = node_ranges[node]
-            full_pfn_range = range(start_pfn, end_pfn + 1)
-            pivot_same = pd.DataFrame(0, index=full_pfn_range, columns=all_snapshots)
+            # 컬러맵 범위 설정 (vmin=0, vmax=global_vmax)
+            sns.heatmap(
+                pivot,
+                cmap=LinearSegmentedColormap.from_list(
+                    "Thermal", ["navy", "red", "yellow"], N=256
+                ),
+                cbar=True,
+                vmin=0,
+                vmax=global_vmax,
+                annot=False,
+            )
 
-        # 컬러맵 범위 설정 (vmin=0, vmax=global_vmax)
-        sns.heatmap(
-            pivot_same,
-            cmap=LinearSegmentedColormap.from_list(
-                "Thermal", ["navy", "red", "yellow"], N=256  # 열화상 색상
-            ),
-            cbar=True,
-            vmin=0,  # 최소값을 0으로 고정
-            vmax=global_vmax,  # 최대값을 모든 노드의 최대 migrate_count로 설정
-            annot=True,  # 셀에 값 표시
-            fmt="d",     # 정수 형식으로 표시
-        )
+            plt.title(f"Node {node} - Migration Heatmap")
+            plt.xlabel("Snapshot (Time)")
+            plt.ylabel("PFN")
+            plt.tight_layout()
 
-        plt.title(f"Node {node} - Migration Heatmap")
-        plt.xlabel("Snapshot (Time)")
-        plt.ylabel("PFN")
-        plt.tight_layout()
-
-        filename = f"node_{node}_migration_heatmap.png"
-        plt.savefig(filename)
-        print(f"Heatmap for node {node} saved as '{filename}'.")
-        plt.close()
+            filename = f"node_{node}_migration_heatmap.png"
+            plt.savefig(filename)
+            print(f"Heatmap for node {node} saved as '{filename}'.")
+            plt.close()
 
 if __name__ == "__main__":
     main()
