@@ -2725,10 +2725,10 @@ static int numa_mmap(struct file *file, struct vm_area_struct *vma)
         unsigned long node_size = sizeof(struct numa_folio_stat) * node_spanned_pages(nid);
 
         // vmalloc 메모리를 유저 스페이스로 매핑
-        if (remap_vmalloc_range_partial(vma, vma->vm_start + offset, numa_profile_stat[nid], node_size)) {
-            printk(KERN_ERR "remap_vmalloc_range_partial failed for node %d\n", nid);
-            return -EAGAIN;
-        }
+        if (remap_vmalloc_range_partial(vma, vma->vm_start + offset, numa_profile_stat[nid], 0, node_size)) {
+			printk(KERN_ERR "remap_vmalloc_range_partial failed for node %d\n", nid);
+			return -EAGAIN;
+		}
 
         offset += node_size;
     }
