@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
+import re  # 정규 표현식 모듈 추가
 
 # 커널에서 사용하는 구조체 정의
 class NumaFolioStat(ctypes.Structure):

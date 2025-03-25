@@ -2716,28 +2716,24 @@ static int numa_mmap(struct file *file, struct vm_area_struct *vma)
 
     // 요청된 크기가 총 크기를 초과하면 오류 반환
     if (size > total_size) {
+        printk(KERN_ERR "Requested mmap size exceeds total size\n");
         return -EINVAL;
     }
 
-    // 각 노드의 데이터를 순차적으로 매핑
+    // NUMA 노드별로 데이터를 매핑
     for_each_online_node(nid) {
         unsigned long node_size = sizeof(struct numa_folio_stat) * node_spanned_pages(nid);
-        unsigned long node_offset = 0;
 
-        // 각 페이지를 개별적으로 매핑
-        while (node_offset < node_size) {
-            unsigned long pfn = vmalloc_to_pfn((char *)numa_profile_stat[nid] + node_offset);
-
-            if (remap_pfn_range(vma, vma->vm_start + offset + node_offset, pfn, PAGE_SIZE, vma->vm_page_prot)) {
-                return -EAGAIN;
-            }
-
-            node_offset += PAGE_SIZE;
+        // vmalloc 메모리를 유저 스페이스로 매핑
+        if (remap_vmalloc_range_partial(vma, vma->vm_start + offset, numa_profile_stat[nid], node_size)) {
+            printk(KERN_ERR "remap_vmalloc_range_partial failed for node %d\n", nid);
+            return -EAGAIN;
         }
 
         offset += node_size;
     }
 
+    printk(KERN_INFO "numa_mmap: Successfully mapped NUMA profile data to user space\n");
     return 0;
 }
 
