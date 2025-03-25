@@ -100,6 +100,22 @@ def execute_migrate_table_reset():
         print(f"Error: migrate_table_reset system call failed with return code {ret}.")
         sys.exit(1)
 
+def set_target_pid(pid):
+    """
+    set_target_pid 시스템 콜을 호출하여 워크로드의 PID를 커널로 전달합니다.
+    """
+    SYS_SET_TARGET_PID = 463  # 시스템 콜 번호 (커널에서 정의된 번호로 설정)
+    libc = ctypes.CDLL("libc.so.6")
+
+    print(f"Setting target PID to {pid} using set_target_pid system call...")
+    ret = libc.syscall(SYS_SET_TARGET_PID, pid)
+
+    if ret < 0:
+        print(f"Error: set_target_pid system call failed with return code {ret}.")
+        sys.exit(1)
+    else:
+        print(f"Target PID {pid} successfully set.")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Collects NUMA data using mmap and generates heatmaps."
@@ -118,13 +134,11 @@ def main():
 
     # NUMA 데이터 크기 계산
     mmap_size = get_total_size()
-    if mmap_size == 0:
-        print("Error: Failed to determine mmap size.")
-        sys.exit(1)
+    print(f"Calculated mmap size: {mmap_size} bytes")
 
     # NUMA 노드 범위 파싱
     node_ranges = parse_node_pfn_stats("/proc/node_pfn_stats")
-    print("Node PFN ranges:\n", node_ranges)
+    print(f"Node PFN ranges: {node_ranges}")
 
     # 워크로드 실행 전에 migrate_table_reset 실행
     execute_migrate_table_reset()
@@ -133,6 +147,10 @@ def main():
     try:
         # 워크로드 실행
         proc = subprocess.Popen(args.command)
+
+        # 워크로드 PID를 커널로 전달
+        set_target_pid(proc.pid)
+
     except FileNotFoundError:
         print(f"Error: Command '{args.command[0]}' not found.")
         sys.exit(1)
