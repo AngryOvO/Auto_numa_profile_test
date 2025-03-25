@@ -15,8 +15,8 @@ import re  # 정규 표현식 모듈 추가
 # 커널에서 사용하는 구조체 정의
 class NumaFolioStat(ctypes.Structure):
     _fields_ = [
-        ("source_nid", ctypes.c_int),          # 원래 NUMA 노드 ID
-        ("migrate_count", ctypes.c_int),       # 마이그레이션 횟수 (atomic_t를 int로 매핑)
+        ("source_nid", ctypes.c_int),              # 원래 NUMA 노드 ID
+        ("current_migrate_count", ctypes.c_int),   # atomic_t를 int로 매핑
     ]
 
 def parse_node_pfn_stats(filepath='/proc/node_pfn_stats'):
@@ -79,7 +79,7 @@ def read_numa_data_mmap(device_path="/dev/numa_mmap", size=4096, node_ranges=Non
                 for pfn in range(start_pfn, end_pfn + 1):
                     # 구조체 읽기
                     stat = NumaFolioStat.from_buffer_copy(mmapped_data[offset:offset + ctypes.sizeof(NumaFolioStat)])
-                    node_data.append((nid, pfn, stat.source_nid, stat.migrate_count))
+                    node_data.append((nid, pfn, stat.source_nid, stat.current_migrate_count))
                     offset += ctypes.sizeof(NumaFolioStat)
                 data.extend(node_data)
 
