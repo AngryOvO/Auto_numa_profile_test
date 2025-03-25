@@ -1800,7 +1800,7 @@ move:
 			int pfn = folio_pfn(dst);
 			int pfn2 = folio_pfn(folio);
 			int offset = get_pfn_for_node(dest_nid, pfn);
-			int offset2 = get_pfn_for_node(source_nid, pfn);
+			int offset2 = get_pfn_for_node(source_nid, pfn2);
 
 			pid_t current_pid;
 
